@@ -17,7 +17,9 @@ export function quantizeSceneV03Number(value: number): number {
     throw new TypeError('Scene numbers must be finite.');
   }
 
-  const quantized = Math.round(value / SCENE_V03_QUANTUM) * SCENE_V03_QUANTUM;
+  // Round the binary multiplication back through the documented decimal
+  // quantum so in-memory editor values match the canonical six-decimal form.
+  const quantized = Number((Math.round(value / SCENE_V03_QUANTUM) * SCENE_V03_QUANTUM).toFixed(6));
   return Object.is(quantized, -0) ? 0 : quantized;
 }
 

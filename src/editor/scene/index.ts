@@ -10,6 +10,7 @@ export {
   updateSceneArtboardCommand,
   updateSceneBackgroundCommand,
   updateSceneLayerTransformCommand,
+  updateSceneMaterialCommand,
   updateScenePaletteEntryCommand,
 } from './commands';
 export type {
@@ -18,6 +19,7 @@ export type {
   SceneCommandDiagnostic,
   SceneIdSequence,
   SceneLayerTransformPatch,
+  SceneMaterialPatch,
   ScenePaletteEntryPatch,
 } from './commands';
 

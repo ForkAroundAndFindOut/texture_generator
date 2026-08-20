@@ -69,6 +69,7 @@ export {
   updateSceneArtboardCommand,
   updateSceneBackgroundCommand,
   updateSceneLayerTransformCommand,
+  updateSceneMaterialCommand,
   updateScenePaletteEntryCommand,
   writeStoredSceneV03,
 } from './scene';
@@ -80,6 +81,7 @@ export type {
   SceneEditorStore,
   SceneIdSequence,
   SceneLayerTransformPatch,
+  SceneMaterialPatch,
   ScenePaletteEntryPatch,
   SceneStoragePort,
   StoredSceneV03Envelope,

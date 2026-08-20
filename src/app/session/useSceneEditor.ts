@@ -21,10 +21,12 @@ import {
   updateSceneArtboardCommand,
   updateSceneBackgroundCommand,
   updateSceneLayerTransformCommand,
+  updateSceneMaterialCommand,
   updateScenePaletteEntryCommand,
   type SceneArtboardPatch,
   type SceneCommandDiagnostic,
   type SceneLayerTransformPatch,
+  type SceneMaterialPatch,
   type ScenePaletteEntryPatch,
   type SceneStoragePort,
 } from '../../editor';
@@ -34,6 +36,13 @@ import { createSceneStarter, type SceneStarterId } from './sceneStarters';
 
 type SceneStore = ReturnType<typeof createSceneEditorStore>;
 type BrowserTimer = ReturnType<typeof globalThis.setTimeout>;
+type ActiveCanvasGesture = {
+  readonly group: ReturnType<SceneStore['beginInteraction']>;
+  readonly baseScene: SceneV03;
+  readonly groupId: GroupId;
+  latestCandidate: SceneV03;
+  changed: boolean;
+};
 
 type BootstrappedScene = {
   readonly scene: SceneV03;
@@ -115,6 +124,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
   const [feedback, setFeedback] = useState<string | undefined>(boot.feedback);
   const sequence = useRef({ value: 10_000 });
   const disposeTimer = useRef<BrowserTimer | undefined>(undefined);
+  const activeCanvasGesture = useRef<ActiveCanvasGesture | undefined>(undefined);
 
   useEffect(() => {
     if (disposeTimer.current !== undefined) globalThis.clearTimeout(disposeTimer.current);
@@ -138,7 +148,19 @@ export function useSceneEditor(initialScene?: SceneV03) {
   const selectedGroup = scene.rootGroups.find((group) => group.id === selectedGroupId);
   const selectedMaterial = firstMaterial(selectedGroup);
 
+  function settleCanvasGesture(commitChange: boolean): void {
+    const active = activeCanvasGesture.current;
+    if (active === undefined) return;
+    const result =
+      commitChange && active.changed
+        ? store.finishInteraction(active.group, active.latestCandidate)
+        : store.cancelInteraction(active.group);
+    activeCanvasGesture.current = undefined;
+    if (!result.ok) setFeedback(feedbackFrom(result.diagnostics));
+  }
+
   function commit(command: DesignCommand<SceneV03, SceneCommandDiagnostic>): boolean {
+    settleCanvasGesture(true);
     const result = store.commitDesignCommand(command);
     if (!result.ok) {
       setFeedback(feedbackFrom(result.diagnostics));
@@ -188,6 +210,10 @@ export function useSceneEditor(initialScene?: SceneV03) {
     commit(updateSceneLayerTransformCommand(groupId, patch));
   }
 
+  function updateMaterial(materialId: string, patch: SceneMaterialPatch): void {
+    commit(updateSceneMaterialCommand(materialId, patch));
+  }
+
   function updateArtboard(patch: SceneArtboardPatch): void {
     commit(updateSceneArtboardCommand(patch));
   }
@@ -200,13 +226,68 @@ export function useSceneEditor(initialScene?: SceneV03) {
     commit(updateScenePaletteEntryCommand(paletteId, patch));
   }
 
+  function applyCanvasDrag(
+    groupId: GroupId,
+    phase: 'start' | 'move' | 'end' | 'cancel',
+    deltaX = 0,
+    deltaY = 0,
+  ): void {
+    if (phase === 'cancel') {
+      settleCanvasGesture(false);
+      return;
+    }
+    if (phase === 'start') {
+      settleCanvasGesture(true);
+      const baseScene = store.getCurrentRecipe();
+      const group = baseScene.rootGroups.find((entry) => entry.id === groupId);
+      if (group === undefined) return;
+      activeCanvasGesture.current = {
+        group: store.beginInteraction('scene-layer-translate'),
+        baseScene,
+        groupId,
+        latestCandidate: baseScene,
+        changed: false,
+      };
+      setSelectedGroupId(groupId);
+      return;
+    }
+
+    const active = activeCanvasGesture.current;
+    if (active === undefined || active.groupId !== groupId) return;
+    const baseGroup = active.baseScene.rootGroups.find((entry) => entry.id === groupId);
+    if (baseGroup === undefined) return;
+    if (deltaX !== 0 || deltaY !== 0) {
+      const prepared = updateSceneLayerTransformCommand(groupId, {
+        translation: {
+          x: baseGroup.transform.translation.x + deltaX,
+          y: baseGroup.transform.translation.y + deltaY,
+        },
+      }).prepare(active.baseScene);
+      if (prepared.kind !== 'success') {
+        setFeedback(feedbackFrom(prepared.diagnostics));
+        return;
+      }
+      const result = store.promoteInteraction(active.group, prepared.candidate);
+      if (!result.ok) {
+        setFeedback(feedbackFrom(result.diagnostics));
+        return;
+      }
+      active.latestCandidate = prepared.candidate;
+      active.changed = true;
+      setFeedback(undefined);
+    }
+    if (phase === 'end') settleCanvasGesture(true);
+  }
+
   function undo(): void {
+    settleCanvasGesture(true);
     const result = store.undo();
     if (!result.ok) setFeedback(feedbackFrom(result.diagnostics));
     else setFeedback(undefined);
   }
 
   function redo(): void {
+    settleCanvasGesture(true);
     const result = store.redo();
     if (!result.ok) setFeedback(feedbackFrom(result.diagnostics));
     else setFeedback(undefined);
@@ -222,7 +303,10 @@ export function useSceneEditor(initialScene?: SceneV03) {
     selectedGroup,
     selectedMaterial,
     selectGroup: setSelectedGroupId,
-    clearSelection: () => setSelectedGroupId(undefined),
+    clearSelection: () => {
+      settleCanvasGesture(false);
+      setSelectedGroupId(undefined);
+    },
     addShape,
     chooseStarter,
     duplicate,
@@ -232,9 +316,11 @@ export function useSceneEditor(initialScene?: SceneV03) {
       commit(setSceneLayerVisibilityCommand(groupId, visible)),
     reorder,
     updateTransform,
+    updateMaterial,
     updateArtboard,
     updateBackground,
     updatePaletteEntry,
+    applyCanvasDrag,
     undo,
     redo,
   };

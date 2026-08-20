@@ -11,6 +11,8 @@ import {
   ARTBOARD_FIT_MODES,
   ARTBOARD_RATIOS,
   canonicalSceneV03Bytes,
+  GRAIN_KINDS,
+  INTERACTION_MODES,
   isSceneV03,
   isSceneV03Id,
   normalizeSceneV03,
@@ -19,8 +21,12 @@ import {
   type ArtboardFitMode,
   type ArtboardRatio,
   type CanonicalSceneColor,
+  type GrainStyle,
   type GroupId,
   type GroupTransform,
+  type InteractionMode,
+  type MaterialFill,
+  type MaterialId,
   type PaletteEntryId,
   type SceneGroup,
   type SceneMaterial,
@@ -58,6 +64,16 @@ export type ScenePaletteEntryPatch = {
 export type SceneArtboardPatch = {
   readonly ratio?: ArtboardRatio;
   readonly fitMode?: ArtboardFitMode;
+};
+
+export type SceneMaterialPatch = {
+  readonly fill?: MaterialFill;
+  readonly opacity?: number;
+  readonly edgeFeather?: number;
+  readonly bloom?: number;
+  readonly interaction?: InteractionMode;
+  /** An explicit undefined removes the optional grain overlay. */
+  readonly grain?: GrainStyle | undefined;
 };
 
 const ID_BYTES = 16;
@@ -594,6 +610,223 @@ export function updateScenePaletteEntryCommand(
         : cloneRecipe(entry),
     );
     return finalize({ ...cloneRecipe(current), palette }, 'Update palette color');
+  });
+}
+
+function hasOwn(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function validateUnitMaterialNumber(
+  value: unknown,
+  path: string,
+  label: string,
+): SceneCommandDiagnostic | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    return diagnostic(
+      'out-of-range-number',
+      path,
+      label + ' must be a finite value from 0 through 1.',
+    );
+  }
+  return undefined;
+}
+
+function validateMaterialFill(scene: SceneV03, value: unknown): SceneCommandDiagnostic | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return diagnostic('invalid-fill', '/material/fill', 'Material fill must be a color source.');
+  }
+  const fill = value as Record<string, unknown>;
+  if (fill['kind'] === 'palette') {
+    if (
+      Object.keys(fill).some((key) => key !== 'kind' && key !== 'paletteId') ||
+      typeof fill['paletteId'] !== 'string'
+    ) {
+      return diagnostic(
+        'invalid-fill',
+        '/material/fill',
+        'Palette fill must name one palette color.',
+      );
+    }
+    if (!scene.palette.some((entry) => entry.id === fill['paletteId'])) {
+      return diagnostic(
+        'missing-palette-reference',
+        '/material/fill/paletteId',
+        'That palette color no longer exists in this scene.',
+      );
+    }
+    return undefined;
+  }
+  if (fill['kind'] === 'local') {
+    if (
+      Object.keys(fill).some((key) => key !== 'kind' && key !== 'color') ||
+      typeof fill['color'] !== 'string'
+    ) {
+      return diagnostic(
+        'invalid-fill',
+        '/material/fill',
+        'Custom fill must contain one hex color.',
+      );
+    }
+    const color = normalizedColor(fill['color'], '/material/fill/color');
+    return isDiagnostic(color) ? color : undefined;
+  }
+  return diagnostic(
+    'invalid-fill',
+    '/material/fill/kind',
+    'Choose a palette color or a custom hex color for this material.',
+  );
+}
+
+function validateGrain(value: unknown): SceneCommandDiagnostic | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return diagnostic(
+      'invalid-grain',
+      '/material/grain',
+      'Grain must be a complete overlay definition.',
+    );
+  }
+  const grain = value as Record<string, unknown>;
+  if (
+    Object.keys(grain).some((key) => !['kind', 'amount', 'scale', 'seed'].includes(key)) ||
+    typeof grain['kind'] !== 'string' ||
+    !GRAIN_KINDS.includes(grain['kind'] as (typeof GRAIN_KINDS)[number])
+  ) {
+    return diagnostic('invalid-grain', '/material/grain/kind', 'Choose grain, paper, or film.');
+  }
+  const amount = validateUnitMaterialNumber(
+    grain['amount'],
+    '/material/grain/amount',
+    'Grain amount',
+  );
+  if (amount !== undefined) return amount;
+  const scale = validateUnitMaterialNumber(grain['scale'], '/material/grain/scale', 'Grain scale');
+  if (scale !== undefined) return scale;
+  if (
+    typeof grain['seed'] !== 'number' ||
+    !Number.isInteger(grain['seed']) ||
+    grain['seed'] < 0 ||
+    grain['seed'] > 4_294_967_295
+  ) {
+    return diagnostic(
+      'invalid-grain',
+      '/material/grain/seed',
+      'Grain seed must be a 32-bit integer.',
+    );
+  }
+  return undefined;
+}
+
+function validateMaterialPatch(
+  scene: SceneV03,
+  patch: SceneMaterialPatch,
+): SceneCommandDiagnostic[] {
+  if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
+    return [diagnostic('invalid-material-patch', '/material', 'Material patch must be an object.')];
+  }
+  const raw = patch as Record<string, unknown>;
+  const keys = Object.keys(raw);
+  const allowed = ['fill', 'opacity', 'edgeFeather', 'bloom', 'interaction', 'grain'];
+  if (keys.length === 0 || keys.some((key) => !allowed.includes(key))) {
+    return [
+      diagnostic(
+        'invalid-material-patch',
+        '/material',
+        'Change fill, opacity, edge fade, bloom, interaction, or grain.',
+      ),
+    ];
+  }
+  const diagnostics: SceneCommandDiagnostic[] = [];
+  if (patch.fill !== undefined) {
+    const issue = validateMaterialFill(scene, patch.fill);
+    if (issue !== undefined) diagnostics.push(issue);
+  }
+  for (const [key, label] of [
+    ['opacity', 'Opacity'],
+    ['edgeFeather', 'Edge fade'],
+    ['bloom', 'Bloom'],
+  ] as const) {
+    if (raw[key] !== undefined) {
+      const issue = validateUnitMaterialNumber(raw[key], '/material/' + key, label);
+      if (issue !== undefined) diagnostics.push(issue);
+    }
+  }
+  if (
+    patch.interaction !== undefined &&
+    !INTERACTION_MODES.includes(patch.interaction as (typeof INTERACTION_MODES)[number])
+  ) {
+    diagnostics.push(
+      diagnostic(
+        'invalid-interaction',
+        '/material/interaction',
+        'Choose Paint, Glow, Shade, Texture, Keep base hue, or Colorize.',
+      ),
+    );
+  }
+  if (hasOwn(raw, 'grain')) {
+    const issue = validateGrain(raw['grain']);
+    if (issue !== undefined) diagnostics.push(issue);
+  }
+  return diagnostics;
+}
+
+function patchMaterialNode(
+  node: SceneNode,
+  materialId: MaterialId,
+  patch: SceneMaterialPatch,
+): { readonly node: SceneNode; readonly found: boolean } {
+  if (node.kind === 'material') {
+    if (node.id !== materialId) return { node: cloneRecipe(node), found: false };
+    const material = cloneRecipe(node);
+    if (patch.fill !== undefined) material.fill = cloneRecipe(patch.fill);
+    if (patch.opacity !== undefined) material.opacity = patch.opacity;
+    if (patch.edgeFeather !== undefined) material.edgeFeather = patch.edgeFeather;
+    if (patch.bloom !== undefined) material.bloom = patch.bloom;
+    if (patch.interaction !== undefined) material.interaction = patch.interaction;
+    if (hasOwn(patch, 'grain')) {
+      if (patch.grain === undefined) Reflect.deleteProperty(material, 'grain');
+      else material.grain = cloneRecipe(patch.grain);
+    }
+    return { node: material, found: true };
+  }
+
+  let found = false;
+  const children = node.children.map((child) => {
+    const patched = patchMaterialNode(child, materialId, patch);
+    found ||= patched.found;
+    return patched.node;
+  });
+  return { node: { ...cloneRecipe(node), children }, found };
+}
+
+/** Changes one material's rendering field while retaining its Boundary geometry and z order. */
+export function updateSceneMaterialCommand(
+  materialId: MaterialId,
+  patch: SceneMaterialPatch,
+): DesignCommand<SceneV03, SceneCommandDiagnostic> {
+  return command('scene-material-update', 'Update material', (current) => {
+    const diagnostics = validateMaterialPatch(current, patch);
+    if (diagnostics.length > 0) return failure(...diagnostics);
+    let found = false;
+    const rootGroups = current.rootGroups.map((group) => {
+      const patched = patchMaterialNode(group, materialId, patch);
+      found ||= patched.found;
+      if (patched.node.kind !== 'group') {
+        throw new TypeError('Root scene nodes must remain groups.');
+      }
+      return patched.node;
+    });
+    if (!found) {
+      return failure(
+        diagnostic(
+          'unknown-material-target',
+          '/rootGroups',
+          'The selected material no longer exists.',
+        ),
+      );
+    }
+    return finalize({ ...cloneRecipe(current), rootGroups }, 'Update material');
   });
 }
 

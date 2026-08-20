@@ -9,6 +9,7 @@ export { DomSvgRenderer, renderDomSvg } from './dom-svg/DomSvgRenderer';
 export type { DomSvgModel, DomSvgRendererProps } from './dom-svg/DomSvgRenderer';
 
 export { compileRenderIR } from './shared/compileRenderIR';
+export { compileSceneRenderIR, transformSceneRenderPoint } from './shared/compileSceneRenderIR';
 export {
   artboardViewBoxForRatio,
   isSceneRenderProfile,

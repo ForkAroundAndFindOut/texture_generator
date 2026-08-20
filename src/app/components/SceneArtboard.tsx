@@ -383,6 +383,11 @@ export function SceneArtboard({
               className="scene-artboard__boundary-editor"
               aria-label="Boundary editing controls"
               role="group"
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') return;
+                event.preventDefault();
+                onCancelBoundaryEdit();
+              }}
             >
               {boundaryEditorPoints.map(({ local, world }, index) => (
                 <button

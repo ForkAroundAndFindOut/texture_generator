@@ -1,9 +1,9 @@
 {
   "name": "texture-lab-v0.1-lite",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Texture Lab v0.2 clickable textured-gradient generator",
+  "description": "Texture Lab v0.3 responsive vector texture composition canvas",
   "engines": {
     "node": ">=24.0.0 <25.0.0",
     "npm": ">=11.0.0 <12.0.0"
@@ -39,6 +39,7 @@
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "@vitejs/plugin-react": "6.0.4",
+    "axe-core": "^4.13.0",
     "eslint": "9.39.5",
     "eslint-config-prettier": "10.1.5",
     "eslint-plugin-prettier": "5.4.1",

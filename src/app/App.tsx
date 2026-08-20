@@ -1,129 +1,70 @@
-import { useMemo } from 'react';
-
-import { resolveComponentColor, type TextureRecipe } from '../domain';
-import { compileRenderIR, serializeCss, serializeSvg, type RenderProfile } from '../renderers';
+import type { SceneV03 } from '../domain';
 import { HistoryControls } from './components/HistoryControls';
-import { PreviewSurface } from './components/PreviewSurface';
+import { SceneArtboard } from './components/SceneArtboard';
 import { EditorLayout } from './layout/EditorLayout';
-import { ColorControls } from './panels/ColorControls';
-import { ComponentInspector } from './panels/ComponentInspector';
-import { ComponentListPanel } from './panels/ComponentListPanel';
-import { ExportPanel } from './panels/ExportPanel';
-import { ShapePicker } from './panels/ShapePicker';
-import { useLiteEditor } from './session/useLiteEditor';
+import { SceneArtboardControls } from './panels/SceneArtboardControls';
+import { SceneLayerInspector } from './panels/SceneLayerInspector';
+import { SceneLayerPanel } from './panels/SceneLayerPanel';
+import { SceneShapeLibrary } from './panels/SceneShapeLibrary';
+import { SceneStarterGallery } from './panels/SceneStarterGallery';
+import { useSceneEditor } from './session/useSceneEditor';
 
 export type AppProps = {
-  readonly initialRecipe?: TextureRecipe;
+  /** Optional valid v0.3 source document for an embedded/editor-hosted session. */
+  readonly initialScene?: SceneV03;
   readonly className?: string;
 };
 
-const LITE_PROFILE: RenderProfile = {
-  kind: 'render-profile',
-  usage: 'component',
-  width: 720,
-  height: 480,
-  fit: 'contain',
-  inspectTiles: false,
-  targetShape: 'landscape',
-};
-
-/** Standalone v0.2 clickable textured-gradient authoring composition. */
-export function App({ initialRecipe, className }: AppProps) {
-  const editor = useLiteEditor(initialRecipe);
-  const previewComponent = editor.previewRecipe.components.find(
-    (component) => component.id === editor.selectedComponentId,
-  );
-  const exportIr = useMemo(() => compileRenderIR(editor.recipe, LITE_PROFILE), [editor.recipe]);
-  const svgText = useMemo(() => serializeSvg(exportIr), [exportIr]);
-  const cssText = useMemo(() => serializeCss(exportIr, svgText), [exportIr, svgText]);
-
-  const layerRail = (
-    <>
-      <ShapePicker onAddPreset={editor.addPreset} />
-      <ComponentListPanel
-        components={editor.recipe.components}
-        selectedComponentIds={editor.selectedIds}
-        onSelectComponents={editor.select}
-        onDuplicateComponent={editor.duplicate}
-        onRemoveComponent={editor.remove}
-        onReorderComponent={editor.reorder}
-        onReorderTo={editor.reorderTo}
-        onRenameComponent={editor.rename}
-        onToggleVisibility={editor.toggleVisibility}
-        isComponentVisible={editor.isLayerVisible}
-        colorForComponent={(component) => resolveComponentColor(editor.recipe, component).value.hex}
-      />
-    </>
-  );
+/** Texture Lab v0.3: a responsive vector composition canvas, not a shape dragger. */
+export function App({ initialScene, className }: AppProps) {
+  const editor = useSceneEditor(initialScene);
+  const saveStatus =
+    editor.persistence.kind === 'cached' ? 'Saved locally' : 'Local save needs attention';
 
   return (
     <EditorLayout
       {...(className === undefined ? {} : { className })}
-      sidebar={layerRail}
+      authoring={
+        <SceneArtboardControls
+          ratio={editor.scene.artboard.ratio}
+          fitMode={editor.scene.artboard.fitMode}
+          onRatioChange={(ratio) => editor.updateArtboard({ ratio })}
+          onFitModeChange={(fitMode) => editor.updateArtboard({ fitMode })}
+        />
+      }
+      sidebar={
+        <>
+          <SceneStarterGallery onChooseStarter={editor.chooseStarter} />
+          <SceneShapeLibrary onAddShape={editor.addShape} />
+          <SceneLayerPanel
+            groups={editor.scene.rootGroups}
+            {...(editor.selectedGroupId === undefined
+              ? {}
+              : { selectedGroupId: editor.selectedGroupId })}
+            onSelect={editor.selectGroup}
+            onRename={editor.rename}
+            onSetVisibility={editor.setVisibility}
+            onReorder={editor.reorder}
+            onDuplicate={editor.duplicate}
+            onRemove={editor.remove}
+          />
+        </>
+      }
       preview={
-        <PreviewSurface
-          recipe={editor.previewRecipe}
-          canonicalRecipeHash={editor.canonicalRecipeHash}
-          profile={LITE_PROFILE}
-          previewState={editor.history.openInteraction === undefined ? 'rendered' : 'rendering'}
-          {...(previewComponent === undefined
+        <SceneArtboard
+          scene={editor.scene}
+          {...(editor.selectedGroupId === undefined
             ? {}
-            : { latestScale: previewComponent.transform.uniformScale })}
-          {...(editor.selectedComponentId === undefined
-            ? {}
-            : { selectedComponentId: editor.selectedComponentId })}
-          {...(editor.selectedAnchorId === undefined
-            ? {}
-            : { selectedAnchorId: editor.selectedAnchorId })}
-          anchorEditMode={editor.anchorEditMode}
-          onSelectComponent={(id) => editor.select([id])}
-          onSelectAnchor={editor.selectAnchor}
-          onInsertAnchor={editor.insertAnchor}
+            : { selectedGroupId: editor.selectedGroupId })}
+          onSelectGroup={editor.selectGroup}
           onClearSelection={editor.clearSelection}
-          onGesture={editor.applyPreviewGesture}
         />
       }
       panels={
-        <>
-          <ComponentInspector
-            component={editor.selectedComponent ?? null}
-            {...(editor.selectedComponentColor === undefined
-              ? {}
-              : { componentColor: editor.selectedComponentColor.value.hex })}
-            anchorEditMode={editor.anchorEditMode}
-            {...(editor.selectedAnchorId === undefined
-              ? {}
-              : { selectedAnchorId: editor.selectedAnchorId })}
-            {...(editor.feedback === undefined ? {} : { feedback: editor.feedback })}
-            onGestureInput={editor.updateInspector}
-            onGestureEnd={editor.finishGesture}
-            onGestureCancel={editor.cancelGesture}
-            onBlendModeChange={editor.updateBlend}
-            onBandShapeChange={editor.updateBandShape}
-            onNameChange={editor.rename}
-            onDuplicate={editor.duplicate}
-            onRemove={editor.remove}
-            onResetTransform={editor.resetTransform}
-            onAnchorEditModeChange={editor.setAnchorEditing}
-            onAddAnchor={editor.addAnchor}
-            onRemoveAnchor={editor.removeAnchor}
-          />
-          <ColorControls
-            base={editor.recipe.base.value}
-            component={editor.selectedComponent ?? null}
-            {...(editor.selectedComponentColor === undefined
-              ? {}
-              : { componentColor: editor.selectedComponentColor })}
-            onBaseChange={editor.updateBaseColor}
-            onComponentChange={editor.updateComponentColor}
-          />
-          <ExportPanel
-            svgText={svgText}
-            cssText={cssText}
-            width={LITE_PROFILE.width}
-            height={LITE_PROFILE.height}
-          />
-        </>
+        <SceneLayerInspector
+          {...(editor.selectedGroup === undefined ? {} : { group: editor.selectedGroup })}
+          onUpdateTransform={editor.updateTransform}
+        />
       }
       headerActions={
         <HistoryControls
@@ -134,21 +75,14 @@ export function App({ initialRecipe, className }: AppProps) {
           onRedo={editor.redo}
         />
       }
-      onExport={() => {
-        const panel = document.getElementById('texture-lab-export-panel');
-        panel?.scrollIntoView({ block: 'nearest' });
-        panel?.focus();
-      }}
-      previewStatus={
-        editor.feedback !== undefined
-          ? 'Needs attention'
-          : editor.history.openInteraction === undefined
-            ? 'Preview live'
-            : 'Updating preview'
-      }
+      exportDisabled
+      previewStatus={`${editor.scene.rootGroups.length} layers · ${saveStatus}`}
       sessionStatus={
         <p>
-          {editor.feedback ?? 'Drag a selected layer, then refine its color, texture, and blend.'}
+          {editor.feedback ??
+            (editor.restored
+              ? 'Restored your saved composition. Choose a layer to continue shaping it.'
+              : 'Start with a composition or add a gesture. Every new layer lands on top.')}
         </p>
       }
     />

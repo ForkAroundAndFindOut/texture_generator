@@ -5,6 +5,7 @@ import { EditorLayout } from './layout/EditorLayout';
 import { SceneArtboardControls } from './panels/SceneArtboardControls';
 import { SceneLayerInspector } from './panels/SceneLayerInspector';
 import { SceneLayerPanel } from './panels/SceneLayerPanel';
+import { ScenePalettePanel } from './panels/ScenePalettePanel';
 import { SceneShapeLibrary } from './panels/SceneShapeLibrary';
 import { SceneStarterGallery } from './panels/SceneStarterGallery';
 import { useSceneEditor } from './session/useSceneEditor';
@@ -58,13 +59,27 @@ export function App({ initialScene, className }: AppProps) {
             : { selectedGroupId: editor.selectedGroupId })}
           onSelectGroup={editor.selectGroup}
           onClearSelection={editor.clearSelection}
+          onDrag={editor.applyCanvasDrag}
         />
       }
       panels={
-        <SceneLayerInspector
-          {...(editor.selectedGroup === undefined ? {} : { group: editor.selectedGroup })}
-          onUpdateTransform={editor.updateTransform}
-        />
+        <>
+          <SceneLayerInspector
+            {...(editor.selectedGroup === undefined ? {} : { group: editor.selectedGroup })}
+            {...(editor.selectedMaterial === undefined
+              ? {}
+              : { material: editor.selectedMaterial })}
+            palette={editor.scene.palette}
+            onUpdateTransform={editor.updateTransform}
+            onUpdateMaterial={editor.updateMaterial}
+          />
+          <ScenePalettePanel
+            background={editor.scene.background}
+            palette={editor.scene.palette}
+            onBackgroundChange={editor.updateBackground}
+            onPaletteChange={editor.updatePaletteEntry}
+          />
+        </>
       }
       headerActions={
         <HistoryControls

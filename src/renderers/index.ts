@@ -9,6 +9,24 @@ export { DomSvgRenderer, renderDomSvg } from './dom-svg/DomSvgRenderer';
 export type { DomSvgModel, DomSvgRendererProps } from './dom-svg/DomSvgRenderer';
 
 export { compileRenderIR } from './shared/compileRenderIR';
+export {
+  artboardViewBoxForRatio,
+  isSceneRenderProfile,
+  preserveAspectRatioForFitMode,
+  sceneRenderProfileForArtboard,
+  SCENE_WORLD_SIZE,
+} from './shared/sceneProfile';
+export type { SceneRenderProfile, SceneViewBoxIR } from './shared/sceneProfile';
+export { INTERACTION_BLEND_MODE, SCENE_RENDER_IR_VERSION } from './shared/sceneIr';
+export type {
+  SceneArtboardIR,
+  SceneGrainIR,
+  SceneMaterialRenderIR,
+  SceneRenderGroupIR,
+  SceneRenderIR,
+  SceneRenderNodeIR,
+  SceneSvgBlendMode,
+} from './shared/sceneIr';
 export type {
   BandLayerIR,
   BaseLayerIR,

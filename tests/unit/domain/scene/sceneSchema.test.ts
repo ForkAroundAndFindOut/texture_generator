@@ -110,6 +110,19 @@ describe('v0.3 scene schema and canonical serialization', () => {
     expect(diagnosticCodes(createDefaultRecipe())).toContain('unsupported-schema-version');
   });
 
+  it('rejects a self-crossing Boundary without accepting a damaged scene', () => {
+    const invalid = createSceneFixture();
+    const material = invalid.rootGroups[0]!.children[0] as SceneMaterial;
+    material.geometry.boundary.vertices = [
+      { x: 0.2, y: 0.2 },
+      { x: 0.8, y: 0.8 },
+      { x: 0.8, y: 0.2 },
+      { x: 0.2, y: 0.8 },
+    ];
+
+    expect(diagnosticCodes(invalid)).toContain('self-intersection');
+  });
+
   it('never serializes a document that fails validation', () => {
     const invalid = createSceneFixture();
     invalid.palette.pop();

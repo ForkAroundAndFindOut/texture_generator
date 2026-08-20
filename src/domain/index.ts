@@ -107,8 +107,39 @@ export type { ResolvedComponentColor } from './color/resolveColor';
  */
 export type { BandFactoryOptions, BandFactoryOverrides } from './geometry/band';
 export { compileBandGeometry, createBand } from './geometry/band';
+export {
+  assertValidBoundary,
+  BoundaryValidationError,
+  signedBoundaryArea,
+  validateBoundary,
+} from './geometry/boundary';
+export type { BoundaryValidationIssue, BoundaryValidationResult } from './geometry/boundary';
 export type { DefaultFieldFactoryOptions } from './geometry/defaultField';
 export { compileFieldGeometry, createDefaultField } from './geometry/defaultField';
+export {
+  createBlobBoundary,
+  createCircleBoundary,
+  createEllipseBoundary,
+  createPolygonBoundary,
+  createPrimitiveBoundary,
+  createRibbonBoundary,
+  createRoundedRectangleBoundary,
+  createSilhouetteBoundary,
+  createSolidStarBoundary,
+  createTriangleBoundary,
+  PRIMITIVE_KINDS,
+} from './geometry/primitives';
+export type {
+  BlobBoundaryOptions,
+  EllipseBoundaryOptions,
+  PolygonBoundaryOptions,
+  PrimitiveKind,
+  RibbonBoundaryOptions,
+  RoundedRectangleBoundaryOptions,
+  SilhouetteBoundaryOptions,
+  SilhouetteKind,
+  StarBoundaryOptions,
+} from './geometry/primitives';
 
 export {
   ARTBOARD_FIT_MODES,

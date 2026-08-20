@@ -1,3 +1,5 @@
+import { validateBoundary } from '../geometry/boundary';
+
 import { isSceneV03Id } from './ids';
 import {
   ARTBOARD_FIT_MODES,
@@ -12,7 +14,6 @@ import {
 const COLOR_PATTERN = /^#[0-9A-F]{6}$/u;
 const MAX_NAME_LENGTH = 80;
 const MAX_GROUP_DEPTH = 64;
-const MAX_BOUNDARY_VERTICES = 64;
 const MAX_UINT32 = 4_294_967_295;
 
 type JsonRecord = Record<string, unknown>;
@@ -253,30 +254,17 @@ function checkBoundary(context: ValidationContext, value: unknown, path: string)
   const boundary = checkRecord(context, value, path, 'Boundary must be an object.');
   if (boundary === null) return;
   checkKeys(context, boundary, path, ['vertices']);
-
-  const vertices = boundary['vertices'];
-  if (!Array.isArray(vertices)) {
+  const validation = validateBoundary(boundary);
+  if (validation.ok) return;
+  for (const issue of validation.issues) {
     add(
       context,
-      'invalid-boundary',
-      path + '/vertices',
-      'Boundary vertices must be an array.',
-      'Provide between 3 and 64 ordered vertices.',
-    );
-    return;
-  }
-  if (vertices.length < 3 || vertices.length > MAX_BOUNDARY_VERTICES) {
-    add(
-      context,
-      'invalid-boundary-count',
-      path + '/vertices',
-      'Boundaries require 3 to 64 vertices.',
-      'Provide between 3 and 64 ordered vertices.',
+      issue.code,
+      path + (issue.path === '/' ? '' : issue.path),
+      issue.message,
+      'Provide one simple closed Boundary with 3 to 64 normalized vertices.',
     );
   }
-  vertices.forEach((vertex, index) =>
-    checkPoint(context, vertex, path + '/vertices/' + index, 0, 1),
-  );
 }
 
 function checkGeometry(context: ValidationContext, value: unknown, path: string): void {

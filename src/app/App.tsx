@@ -90,6 +90,7 @@ export function App({ initialScene, className }: AppProps) {
             palette={editor.scene.palette}
             onBackgroundChange={editor.updateBackground}
             onPaletteChange={editor.updatePaletteEntry}
+            onRemix={editor.remixPalette}
           />
           <SceneExportPanel scene={editor.scene} onImportScene={editor.importScene} />
         </>

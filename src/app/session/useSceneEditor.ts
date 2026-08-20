@@ -16,6 +16,7 @@ import {
   deleteSceneLayerCommand,
   duplicateSceneLayerCommand,
   readStoredSceneV03,
+  remixScenePaletteCommand,
   renameSceneLayerCommand,
   reorderSceneLayerCommand,
   replaceSceneV03Command,
@@ -41,6 +42,7 @@ import {
 } from './freeformBoundary';
 import { createSceneMaterialTemplate, type SceneShapePresetId } from './sceneTemplates';
 import { createSceneStarter, type SceneStarterId } from './sceneStarters';
+import { nextScenePaletteRemix } from './paletteRemix';
 
 type SceneStore = ReturnType<typeof createSceneEditorStore>;
 type BrowserTimer = ReturnType<typeof globalThis.setTimeout>;
@@ -257,6 +259,10 @@ export function useSceneEditor(initialScene?: SceneV03) {
     commit(updateScenePaletteEntryCommand(paletteId, patch));
   }
 
+  function remixPalette(): void {
+    commit(remixScenePaletteCommand(nextScenePaletteRemix(scene)));
+  }
+
   function beginFreeform(): void {
     settleCanvasGesture(true);
     replaceFreeformDraft({ points: [] });
@@ -454,6 +460,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
     updateArtboard,
     updateBackground,
     updatePaletteEntry,
+    remixPalette,
     beginFreeform,
     cancelFreeform,
     undoFreeformPoint,

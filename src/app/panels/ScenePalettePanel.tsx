@@ -7,6 +7,7 @@ export type ScenePalettePanelProps = {
   readonly palette: readonly ScenePaletteEntry[];
   readonly onBackgroundChange: (color: string) => void;
   readonly onPaletteChange: (paletteId: string, patch: ScenePaletteEntryPatch) => void;
+  readonly onRemix: () => void;
 };
 
 /** Canvas and named palette controls stay separate from each material's fill source. */
@@ -15,6 +16,7 @@ export function ScenePalettePanel({
   palette,
   onBackgroundChange,
   onPaletteChange,
+  onRemix,
 }: ScenePalettePanelProps) {
   return (
     <section className="scene-palette-panel" aria-labelledby="scene-palette-title">
@@ -23,7 +25,13 @@ export function ScenePalettePanel({
           <p className="editor-eyebrow">Composition</p>
           <h2 id="scene-palette-title">Canvas & palette</h2>
         </div>
+        <button type="button" onClick={onRemix}>
+          Remix palette
+        </button>
       </div>
+      <p className="scene-panel-copy">
+        Remix changes palette-linked materials together; custom local fills stay put.
+      </p>
       <label className="scene-palette-panel__background">
         <span>Canvas color</span>
         <input

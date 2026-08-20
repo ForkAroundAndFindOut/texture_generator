@@ -5,6 +5,7 @@ import {
   addSceneLayerCommand,
   createSceneCommandContext,
   createSceneEditorStore,
+  remixScenePaletteCommand,
   updateSceneMaterialCommand,
 } from '../../../src/editor';
 import { createSceneMaterialTemplate } from '../../../src/app/session/sceneTemplates';
@@ -107,5 +108,32 @@ describe('v0.3 material commands', () => {
     expect(rejected.ok).toBe(false);
     expect(canonicalSceneV03String(store.getCurrentRecipe())).toBe(before);
     expect(store.getSnapshot().history.entries).toHaveLength(historyLength);
+  });
+
+  it('remixes palette-linked materials without changing local fill overrides', () => {
+    const { store, materialId } = addGlow();
+    const linkedBefore = store.getCurrentRecipe().palette[0]!.color;
+    const localResult = store.commitDesignCommand(
+      updateSceneMaterialCommand(materialId, { fill: { kind: 'local', color: '#FF3344' } }),
+    );
+    expect(localResult.ok).toBe(true);
+    const before = canonicalSceneV03String(store.getCurrentRecipe());
+    const historyBefore = store.getSnapshot().history.entries.length;
+
+    const result = store.commitDesignCommand(
+      remixScenePaletteCommand(['#6FE0D7', '#78A9FF', '#F5A7D8', '#FFF4E8']),
+    );
+    expect(result.ok).toBe(true);
+    const after = canonicalSceneV03String(store.getCurrentRecipe());
+    expect(after).not.toBe(before);
+    expect(store.getCurrentRecipe().palette[0]?.color).not.toBe(linkedBefore);
+    const material = store.getCurrentRecipe().rootGroups[0]?.children[0];
+    expect(material).toMatchObject({ kind: 'material', fill: { kind: 'local', color: '#FF3344' } });
+    expect(store.getSnapshot().history.entries).toHaveLength(historyBefore + 1);
+
+    expect(store.undo().ok).toBe(true);
+    expect(canonicalSceneV03String(store.getCurrentRecipe())).toBe(before);
+    expect(store.redo().ok).toBe(true);
+    expect(canonicalSceneV03String(store.getCurrentRecipe())).toBe(after);
   });
 });

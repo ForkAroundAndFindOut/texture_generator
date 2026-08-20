@@ -61,6 +61,9 @@ export type ScenePaletteEntryPatch = {
   readonly color?: CanonicalSceneColor;
 };
 
+/** A palette remix intentionally preserves palette IDs, names, and material links. */
+export type ScenePaletteRemix = readonly CanonicalSceneColor[];
+
 export type SceneArtboardPatch = {
   readonly ratio?: ArtboardRatio;
   readonly fitMode?: ArtboardFitMode;
@@ -645,6 +648,49 @@ export function updateScenePaletteEntryCommand(
         : cloneRecipe(entry),
     );
     return finalize({ ...cloneRecipe(current), palette }, 'Update palette color');
+  });
+}
+
+/**
+ * Recolors every existing palette entry as one atomic composition action.
+ *
+ * Keeping entry IDs in place is essential: palette-linked materials respond
+ * immediately, while local material fills remain deliberately untouched.
+ */
+export function remixScenePaletteCommand(
+  colors: ScenePaletteRemix,
+): DesignCommand<SceneV03, SceneCommandDiagnostic> {
+  return command('scene-palette-remix', 'Remix palette', (current) => {
+    if (!Array.isArray(colors) || colors.length !== current.palette.length) {
+      return failure(
+        diagnostic(
+          'invalid-palette-remix',
+          '/palette',
+          `A palette remix needs exactly ${current.palette.length} colors.`,
+        ),
+      );
+    }
+    const normalizedColors: CanonicalSceneColor[] = [];
+    for (const [index, color] of colors.entries()) {
+      const normalized = normalizedColor(color, '/palette/' + index + '/color');
+      if (isDiagnostic(normalized)) return failure(normalized);
+      normalizedColors.push(normalized);
+    }
+    if (current.palette.every((entry, index) => entry.color === normalizedColors[index])) {
+      return failure(
+        diagnostic(
+          'no-change',
+          '/palette',
+          'This remix already matches the active palette.',
+          'Choose Remix palette again to try the next composition of colors.',
+        ),
+      );
+    }
+    const palette = current.palette.map((entry, index) => ({
+      ...cloneRecipe(entry),
+      color: normalizedColors[index]!,
+    }));
+    return finalize({ ...cloneRecipe(current), palette }, 'Remix palette');
   });
 }
 

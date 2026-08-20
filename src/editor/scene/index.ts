@@ -4,6 +4,7 @@ export {
   createSceneCommandContext,
   deleteSceneLayerCommand,
   duplicateSceneLayerCommand,
+  remixScenePaletteCommand,
   renameSceneLayerCommand,
   reorderSceneLayerCommand,
   replaceSceneV03Command,
@@ -21,6 +22,7 @@ export type {
   SceneIdSequence,
   SceneLayerTransformPatch,
   SceneMaterialPatch,
+  ScenePaletteRemix,
   ScenePaletteEntryPatch,
 } from './commands';
 

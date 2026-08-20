@@ -36,7 +36,14 @@ export function App({ initialScene, className }: AppProps) {
       sidebar={
         <>
           <SceneStarterGallery onChooseStarter={editor.chooseStarter} />
-          <SceneShapeLibrary onAddShape={editor.addShape} />
+          <SceneShapeLibrary
+            onAddShape={editor.addShape}
+            freeformActive={editor.freeformDraft !== undefined}
+            freeformPointCount={editor.freeformDraft?.points.length ?? 0}
+            onBeginFreeform={editor.beginFreeform}
+            onCancelFreeform={editor.cancelFreeform}
+            onUndoFreeformPoint={editor.undoFreeformPoint}
+          />
           <SceneLayerPanel
             groups={editor.scene.rootGroups}
             {...(editor.selectedGroupId === undefined
@@ -60,6 +67,10 @@ export function App({ initialScene, className }: AppProps) {
           onSelectGroup={editor.selectGroup}
           onClearSelection={editor.clearSelection}
           onDrag={editor.applyCanvasDrag}
+          {...(editor.freeformDraft === undefined ? {} : { freeformDraft: editor.freeformDraft })}
+          onFreeformPoint={editor.placeFreeformPoint}
+          onFreeformHover={editor.hoverFreeform}
+          onCancelFreeform={editor.cancelFreeform}
         />
       }
       panels={

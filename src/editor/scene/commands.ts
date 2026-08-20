@@ -77,6 +77,7 @@ export type SceneMaterialPatch = {
 };
 
 const ID_BYTES = 16;
+const MAX_ID_ALLOCATION_ATTEMPTS = 64;
 const MAX_NAME_LENGTH = 80;
 const COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/u;
 
@@ -150,25 +151,26 @@ function allocateId(
     );
   }
   try {
-    const id = context.createId(kind);
-    if (!isSceneV03Id(id, kind)) {
-      return diagnostic(
-        'invalid-stable-id',
-        '/id',
-        'The scene ID factory returned a malformed ' + kind + ' ID.',
-        'Use a stable v0.3 ID factory and retry.',
-      );
+    for (let attempt = 0; attempt < MAX_ID_ALLOCATION_ATTEMPTS; attempt += 1) {
+      const id = context.createId(kind);
+      if (!isSceneV03Id(id, kind)) {
+        return diagnostic(
+          'invalid-stable-id',
+          '/id',
+          'The scene ID factory returned a malformed ' + kind + ' ID.',
+          'Use a stable v0.3 ID factory and retry.',
+        );
+      }
+      if (usedIds.has(id)) continue;
+      usedIds.add(id);
+      return id;
     }
-    if (usedIds.has(id)) {
-      return diagnostic(
-        'duplicate-id',
-        '/id',
-        'The scene ID factory returned an ID that is already in use.',
-        'Retry the edit so a fresh stable ID can be allocated.',
-      );
-    }
-    usedIds.add(id);
-    return id;
+    return diagnostic(
+      'duplicate-id',
+      '/id',
+      'The scene ID factory could not allocate an unused ID.',
+      'Retry the edit so a fresh stable ID can be allocated.',
+    );
   } catch {
     return diagnostic(
       'scene-id-unavailable',
@@ -380,16 +382,28 @@ function transformWithPatch(
   };
 }
 
-/**
- * Adds a material in a fresh top-level layer group at the front of the scene.
- * Arrays are back-to-front, so appending here is the durable z-order rule that
- * guarantees a newly added shape starts above every existing shape.
- */
-export function addSceneLayerCommand(
+const DEFAULT_NEW_LAYER_TRANSFORM: GroupTransform = {
+  translation: { x: 0.5, y: 0.5 },
+  uniformScale: 1,
+  rotationDeg: 0,
+};
+
+function validateCompleteGroupTransform(transform: GroupTransform): SceneCommandDiagnostic[] {
+  return validateTransformPatch({
+    translation: transform.translation,
+    uniformScale: transform.uniformScale,
+    rotationDeg: transform.rotationDeg,
+  });
+}
+
+function addSceneLayerWithTransformCommand(
   materialTemplate: SceneMaterial,
+  transform: GroupTransform,
   context: SceneCommandContext,
 ): DesignCommand<SceneV03, SceneCommandDiagnostic> {
   return command('scene-layer-add', 'Add layer', (current) => {
+    const transformDiagnostics = validateCompleteGroupTransform(transform);
+    if (transformDiagnostics.length > 0) return failure(...transformDiagnostics);
     const usedIds = allSceneIds(current);
     const groupId = allocateId(current, context, 'group', usedIds);
     if (isDiagnostic(groupId)) return failure(groupId);
@@ -404,7 +418,7 @@ export function addSceneLayerCommand(
       id: groupId,
       name,
       visible: true,
-      transform: { translation: { x: 0.5, y: 0.5 }, uniformScale: 1, rotationDeg: 0 },
+      transform: cloneRecipe(transform),
       children: [material],
     };
     return finalize(
@@ -412,6 +426,27 @@ export function addSceneLayerCommand(
       'Add layer',
     );
   });
+}
+
+/**
+ * Adds a material in a fresh top-level layer group at the front of the scene.
+ * Arrays are back-to-front, so appending here is the durable z-order rule that
+ * guarantees a newly added shape starts above every existing shape.
+ */
+export function addSceneLayerCommand(
+  materialTemplate: SceneMaterial,
+  context: SceneCommandContext,
+): DesignCommand<SceneV03, SceneCommandDiagnostic> {
+  return addSceneLayerWithTransformCommand(materialTemplate, DEFAULT_NEW_LAYER_TRANSFORM, context);
+}
+
+/** Adds a new topmost material at an explicit validated transform, in one undo entry. */
+export function addSceneLayerAtTransformCommand(
+  materialTemplate: SceneMaterial,
+  transform: GroupTransform,
+  context: SceneCommandContext,
+): DesignCommand<SceneV03, SceneCommandDiagnostic> {
+  return addSceneLayerWithTransformCommand(materialTemplate, transform, context);
 }
 
 /** Duplicates one top-level layer and appends its copy at the front. */

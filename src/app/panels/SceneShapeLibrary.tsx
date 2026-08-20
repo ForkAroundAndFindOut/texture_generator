@@ -6,6 +6,11 @@ import {
 
 export type SceneShapeLibraryProps = {
   readonly onAddShape: (presetId: SceneShapePresetId) => void;
+  readonly freeformActive: boolean;
+  readonly freeformPointCount: number;
+  readonly onBeginFreeform: () => void;
+  readonly onCancelFreeform: () => void;
+  readonly onUndoFreeformPoint: () => void;
 };
 
 const families: ReadonlyArray<Readonly<{ id: SceneShapePreset['family']; label: string }>> = [
@@ -15,7 +20,14 @@ const families: ReadonlyArray<Readonly<{ id: SceneShapePreset['family']; label: 
 ];
 
 /** Composition gestures come first; the broader shape library remains one disclosure away. */
-export function SceneShapeLibrary({ onAddShape }: SceneShapeLibraryProps) {
+export function SceneShapeLibrary({
+  onAddShape,
+  freeformActive,
+  freeformPointCount,
+  onBeginFreeform,
+  onCancelFreeform,
+  onUndoFreeformPoint,
+}: SceneShapeLibraryProps) {
   return (
     <section className="scene-shape-library" aria-labelledby="scene-shape-library-title">
       <div className="scene-panel-heading">
@@ -25,6 +37,31 @@ export function SceneShapeLibrary({ onAddShape }: SceneShapeLibraryProps) {
         </div>
       </div>
       <p className="scene-panel-copy">One action creates a solid, editable material on top.</p>
+      <div className={`scene-freeform-control${freeformActive ? ' is-active' : ''}`}>
+        <div>
+          <p className="scene-freeform-control__label">Freeform Boundary</p>
+          <p className="scene-freeform-control__copy">
+            {freeformActive
+              ? `${freeformPointCount} point${freeformPointCount === 1 ? '' : 's'} placed. Click near the first point to close one solid body.`
+              : 'Place straight-line points; the first point magnetically closes a simple filled body.'}
+          </p>
+        </div>
+        <div className="scene-freeform-control__actions">
+          <button
+            type="button"
+            className="scene-freeform-control__primary"
+            aria-pressed={freeformActive}
+            onClick={freeformActive ? onCancelFreeform : onBeginFreeform}
+          >
+            {freeformActive ? 'Cancel Boundary' : 'Draw Boundary'}
+          </button>
+          {freeformActive && freeformPointCount > 0 ? (
+            <button type="button" onClick={onUndoFreeformPoint}>
+              Remove last point
+            </button>
+          ) : null}
+        </div>
+      </div>
       {families.map((family, familyIndex) => {
         const presets = SCENE_SHAPE_PRESETS.filter((preset) => preset.family === family.id);
         const content = (

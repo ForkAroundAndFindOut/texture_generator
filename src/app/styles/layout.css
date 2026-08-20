@@ -1153,6 +1153,55 @@ summary:focus-visible {
   font-weight: 700;
 }
 
+.scene-freeform-control {
+  display: grid;
+  gap: 0.48rem;
+  padding: 0.58rem;
+  border: 1px solid rgb(125 211 252 / 26%);
+  border-radius: 0.62rem;
+  background: rgb(15 23 42 / 46%);
+}
+
+.scene-freeform-control.is-active {
+  border-color: rgb(134 239 172 / 68%);
+  background: linear-gradient(135deg, rgb(22 163 74 / 13%), rgb(15 23 42 / 62%));
+}
+
+.scene-freeform-control__label,
+.scene-freeform-control__copy {
+  margin: 0;
+}
+
+.scene-freeform-control__label {
+  color: #e4f8ff;
+  font-size: 0.75rem;
+  font-weight: 780;
+}
+
+.scene-freeform-control__copy {
+  margin-top: 0.16rem;
+  color: #9fb3d1;
+  font-size: 0.68rem;
+  line-height: 1.38;
+}
+
+.scene-freeform-control__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.34rem;
+}
+
+.scene-freeform-control__actions button {
+  padding: 0.31rem 0.45rem;
+  font-size: 0.68rem;
+}
+
+.scene-freeform-control__primary {
+  border-color: rgb(125 211 252 / 55%);
+  color: #05233a;
+  background: #bae6fd;
+}
+
 .scene-layer-panel {
   min-height: 0;
 }
@@ -1338,6 +1387,62 @@ summary:focus-visible {
 
 .scene-artboard__svg [data-scene-selected='true'] {
   filter: drop-shadow(0 0 5px rgb(255 255 255 / 85%));
+}
+
+.scene-artboard__frame.is-drawing .scene-artboard__svg {
+  cursor: crosshair;
+}
+
+.scene-artboard__frame.is-drawing .scene-artboard__svg [data-scene-group-id] {
+  cursor: crosshair;
+}
+
+.scene-artboard__draft {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.scene-artboard__draft-line {
+  fill: none;
+  stroke: #e0f2fe;
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 5px rgb(56 189 248 / 75%));
+}
+
+.scene-artboard__draft-point {
+  fill: #e0f2fe;
+  stroke: #0f172a;
+  stroke-width: 4;
+}
+
+.scene-artboard__draft-point.is-start {
+  fill: #86efac;
+}
+
+.scene-artboard__draft-point.is-close-target {
+  fill: #f0fdf4;
+  stroke: #22c55e;
+}
+
+.scene-artboard__draft-snap-ring {
+  fill: none;
+  stroke: #86efac;
+  stroke-width: 4;
+  stroke-dasharray: 8 7;
+  animation: scene-boundary-snap 1.2s linear infinite;
+}
+
+@keyframes scene-boundary-snap {
+  to {
+    stroke-dashoffset: -30;
+  }
 }
 
 .scene-artboard__empty {

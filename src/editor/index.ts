@@ -51,6 +51,7 @@ export type {
 } from './state/editorStore';
 
 export {
+  addSceneLayerAtTransformCommand,
   addSceneLayerCommand,
   createSceneCommandContext,
   createSceneEditorStore,

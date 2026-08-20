@@ -22,6 +22,28 @@ function addGlow() {
 }
 
 describe('v0.3 material commands', () => {
+  it('skips occupied deterministic IDs when adding a new top-level layer', () => {
+    const store = createSceneEditorStore(createBlankSceneV03());
+    const first = createSceneCommandContext({ value: 700 });
+    expect(
+      store.commitDesignCommand(
+        addSceneLayerCommand(createSceneMaterialTemplate(store.getCurrentRecipe(), 'glow'), first),
+      ).ok,
+    ).toBe(true);
+
+    const reusedSequence = createSceneCommandContext({ value: 700 });
+    expect(
+      store.commitDesignCommand(
+        addSceneLayerCommand(
+          createSceneMaterialTemplate(store.getCurrentRecipe(), 'band'),
+          reusedSequence,
+        ),
+      ).ok,
+    ).toBe(true);
+    expect(store.getCurrentRecipe().rootGroups).toHaveLength(2);
+    expect(new Set(store.getCurrentRecipe().rootGroups.map((group) => group.id))).toHaveLength(2);
+  });
+
   it('commits fill, soft edge, bloom, interaction, and grain as one undoable material change', () => {
     const { store, materialId } = addGlow();
     const before = canonicalSceneV03String(store.getCurrentRecipe());

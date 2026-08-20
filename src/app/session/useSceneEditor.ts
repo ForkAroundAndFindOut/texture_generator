@@ -5,9 +5,11 @@ import {
   type GroupId,
   type SceneGroup,
   type SceneMaterial,
+  type ScenePoint,
   type SceneV03,
 } from '../../domain';
 import {
+  addSceneLayerAtTransformCommand,
   addSceneLayerCommand,
   createSceneCommandContext,
   createSceneEditorStore,
@@ -31,6 +33,12 @@ import {
   type SceneStoragePort,
 } from '../../editor';
 import type { DesignCommand } from '../../editor/state/commands';
+import {
+  checkFreeformAppend,
+  checkFreeformClosure,
+  createFreeformLayerTemplate,
+  isNearFreeformStart,
+} from './freeformBoundary';
 import { createSceneMaterialTemplate, type SceneShapePresetId } from './sceneTemplates';
 import { createSceneStarter, type SceneStarterId } from './sceneStarters';
 
@@ -43,6 +51,17 @@ type ActiveCanvasGesture = {
   latestCandidate: SceneV03;
   changed: boolean;
 };
+
+export type SceneFreeformDraft = Readonly<{
+  readonly points: readonly ScenePoint[];
+  readonly hoverPoint?: ScenePoint;
+  readonly canClose: boolean;
+}>;
+
+type MutableFreeformDraft = Readonly<{
+  readonly points: readonly ScenePoint[];
+  readonly hoverPoint?: ScenePoint;
+}>;
 
 type BootstrappedScene = {
   readonly scene: SceneV03;
@@ -125,6 +144,8 @@ export function useSceneEditor(initialScene?: SceneV03) {
   const sequence = useRef({ value: 10_000 });
   const disposeTimer = useRef<BrowserTimer | undefined>(undefined);
   const activeCanvasGesture = useRef<ActiveCanvasGesture | undefined>(undefined);
+  const [freeformDraft, setFreeformDraft] = useState<MutableFreeformDraft | undefined>(undefined);
+  const freeformDraftRef = useRef<MutableFreeformDraft | undefined>(undefined);
 
   useEffect(() => {
     if (disposeTimer.current !== undefined) globalThis.clearTimeout(disposeTimer.current);
@@ -148,6 +169,15 @@ export function useSceneEditor(initialScene?: SceneV03) {
   const selectedGroup = scene.rootGroups.find((group) => group.id === selectedGroupId);
   const selectedMaterial = firstMaterial(selectedGroup);
 
+  function replaceFreeformDraft(next: MutableFreeformDraft | undefined): void {
+    freeformDraftRef.current = next;
+    setFreeformDraft(next);
+  }
+
+  function discardFreeformDraft(): void {
+    replaceFreeformDraft(undefined);
+  }
+
   function settleCanvasGesture(commitChange: boolean): void {
     const active = activeCanvasGesture.current;
     if (active === undefined) return;
@@ -161,6 +191,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
 
   function commit(command: DesignCommand<SceneV03, SceneCommandDiagnostic>): boolean {
     settleCanvasGesture(true);
+    discardFreeformDraft();
     const result = store.commitDesignCommand(command);
     if (!result.ok) {
       setFeedback(feedbackFrom(result.diagnostics));
@@ -226,6 +257,89 @@ export function useSceneEditor(initialScene?: SceneV03) {
     commit(updateScenePaletteEntryCommand(paletteId, patch));
   }
 
+  function beginFreeform(): void {
+    settleCanvasGesture(true);
+    replaceFreeformDraft({ points: [] });
+    setSelectedGroupId(undefined);
+    setFeedback(
+      'Place three or more points. Click near the first point to close one solid Boundary.',
+    );
+  }
+
+  function cancelFreeform(): void {
+    if (freeformDraftRef.current === undefined) return;
+    discardFreeformDraft();
+    setFeedback('Boundary draft cancelled.');
+  }
+
+  function undoFreeformPoint(): void {
+    const draft = freeformDraftRef.current;
+    if (draft === undefined || draft.points.length === 0) return;
+    const points = draft.points.slice(0, -1);
+    replaceFreeformDraft({
+      points,
+      ...(draft.hoverPoint === undefined ? {} : { hoverPoint: draft.hoverPoint }),
+    });
+    setFeedback(
+      points.length === 0
+        ? 'Boundary draft is clear. Place the first point.'
+        : `${points.length} Boundary point${points.length === 1 ? '' : 's'} placed.`,
+    );
+  }
+
+  function hoverFreeform(point: ScenePoint | undefined): void {
+    const draft = freeformDraftRef.current;
+    if (draft === undefined) return;
+    replaceFreeformDraft({
+      points: draft.points,
+      ...(point === undefined ? {} : { hoverPoint: point }),
+    });
+  }
+
+  function placeFreeformPoint(point: ScenePoint): void {
+    const draft = freeformDraftRef.current;
+    if (draft === undefined) return;
+    if (isNearFreeformStart(draft.points, point)) {
+      const closure = checkFreeformClosure(draft.points);
+      if (!closure.ok) {
+        setFeedback(closure.message);
+        return;
+      }
+      try {
+        const template = createFreeformLayerTemplate(scene, draft.points);
+        if (
+          commit(
+            addSceneLayerAtTransformCommand(
+              template.material,
+              template.transform,
+              createSceneCommandContext(sequence.current),
+            ),
+          )
+        ) {
+          setSelectedGroupId(store.getCurrentRecipe().rootGroups.at(-1)?.id);
+          setFeedback(
+            'Freeform Boundary added on top. Refine its color, edge fade, and interaction.',
+          );
+        }
+      } catch (error) {
+        setFeedback(error instanceof Error ? error.message : 'The Boundary could not be created.');
+      }
+      return;
+    }
+    const append = checkFreeformAppend(draft.points, point);
+    if (!append.ok) {
+      setFeedback(append.message);
+      return;
+    }
+    const points = [...draft.points, point];
+    replaceFreeformDraft({ points, hoverPoint: point });
+    setFeedback(
+      points.length < 3
+        ? `${points.length} Boundary point${points.length === 1 ? '' : 's'} placed. Keep drawing.`
+        : `${points.length} Boundary points placed. Click near the highlighted first point to close.`,
+    );
+  }
+
   function applyCanvasDrag(
     groupId: GroupId,
     phase: 'start' | 'move' | 'end' | 'cancel',
@@ -281,6 +395,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
 
   function undo(): void {
     settleCanvasGesture(true);
+    discardFreeformDraft();
     const result = store.undo();
     if (!result.ok) setFeedback(feedbackFrom(result.diagnostics));
     else setFeedback(undefined);
@@ -288,6 +403,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
 
   function redo(): void {
     settleCanvasGesture(true);
+    discardFreeformDraft();
     const result = store.redo();
     if (!result.ok) setFeedback(feedbackFrom(result.diagnostics));
     else setFeedback(undefined);
@@ -302,6 +418,18 @@ export function useSceneEditor(initialScene?: SceneV03) {
     selectedGroupId: selectedGroup?.id,
     selectedGroup,
     selectedMaterial,
+    freeformDraft:
+      freeformDraft === undefined
+        ? undefined
+        : {
+            points: freeformDraft.points,
+            ...(freeformDraft.hoverPoint === undefined
+              ? {}
+              : { hoverPoint: freeformDraft.hoverPoint }),
+            canClose:
+              freeformDraft.hoverPoint !== undefined &&
+              isNearFreeformStart(freeformDraft.points, freeformDraft.hoverPoint),
+          },
     selectGroup: setSelectedGroupId,
     clearSelection: () => {
       settleCanvasGesture(false);
@@ -320,6 +448,11 @@ export function useSceneEditor(initialScene?: SceneV03) {
     updateArtboard,
     updateBackground,
     updatePaletteEntry,
+    beginFreeform,
+    cancelFreeform,
+    undoFreeformPoint,
+    hoverFreeform,
+    placeFreeformPoint,
     applyCanvasDrag,
     undo,
     redo,

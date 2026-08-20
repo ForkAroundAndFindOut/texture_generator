@@ -208,7 +208,29 @@ test('v0.3 authors a portable art composition without rasterizing it', async ({ 
     rows.first().getByRole('textbox', { name: /Layer name Freeform Boundary/u }),
   ).toBeVisible();
 
-  await page.getByRole('button', { name: 'Export' }).click();
+  const beforeDoubleClickBoundary = await rows.count();
+  await page.getByRole('button', { name: 'Draw Boundary' }).click();
+  await page.mouse.click(
+    canvasBounds.x + canvasBounds.width * 0.18,
+    canvasBounds.y + canvasBounds.height * 0.7,
+  );
+  await page.mouse.click(
+    canvasBounds.x + canvasBounds.width * 0.4,
+    canvasBounds.y + canvasBounds.height * 0.32,
+  );
+  await page.mouse.click(
+    canvasBounds.x + canvasBounds.width * 0.72,
+    canvasBounds.y + canvasBounds.height * 0.7,
+  );
+  await page.mouse.dblclick(
+    canvasBounds.x + canvasBounds.width * 0.48,
+    canvasBounds.y + canvasBounds.height * 0.82,
+  );
+  await expect(rows).toHaveCount(beforeDoubleClickBoundary + 1);
+  await expect(page.getByLabel('Layer inspector')).toContainText('Freeform Boundary');
+
+  await page.getByRole('button', { name: 'Export' }).focus();
+  await page.keyboard.press('Enter');
   const exportPanel = page.getByRole('region', { name: 'Portable export' });
   await expect(exportPanel).toBeFocused();
 
@@ -324,7 +346,8 @@ test('v0.3 supports remix, reframe, layered selection, and safe Boundary editing
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
   await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' });
-  await page.getByRole('button', { name: 'Choose Aurora wave starter' }).click();
+  await page.getByRole('button', { name: 'Choose Aurora wave starter' }).focus();
+  await page.keyboard.press('Enter');
   const rows = layerRows(page);
   const originalLayerCount = await rows.count();
 
@@ -345,18 +368,28 @@ test('v0.3 supports remix, reframe, layered selection, and safe Boundary editing
   await expect(scale).toHaveValue(beforeReframeScale);
   await page.getByRole('button', { name: '1:1', exact: true }).click();
 
-  await page.getByRole('button', { name: /^Glow\b/u }).click();
+  await page.getByRole('button', { name: /^Glow\b/u }).focus();
+  await page.keyboard.press('Enter');
   await expect(rows).toHaveCount(originalLayerCount + 1);
   await expect(rows.first().getByRole('button', { name: /Select Glow/u })).toBeVisible();
-  await page.getByRole('button', { name: 'Use White #FFFFFF', exact: true }).click();
+  await page.getByRole('button', { name: 'Use White #FFFFFF', exact: true }).focus();
+  await page.keyboard.press('Enter');
   await expect(page.getByLabel('Fill color')).toHaveValue('#ffffff');
 
   await page.getByRole('button', { name: /^Orb\b/u }).click();
   await expect(rows).toHaveCount(originalLayerCount + 2);
   await expect(rows.first().getByRole('button', { name: /Select Orb/u })).toBeVisible();
 
-  await page.getByRole('button', { name: /Select Glow/u }).click();
+  await page.getByRole('button', { name: /Select Glow/u }).focus();
+  await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: /Glow/u })).toBeVisible();
+  const glowRow = rows.filter({
+    has: page.getByRole('button', { name: /Select Glow/u }),
+  });
+  await glowRow.getByRole('button', { name: 'Move layer down' }).focus();
+  await page.keyboard.press('Enter');
+  await glowRow.getByRole('button', { name: 'Move layer up' }).focus();
+  await page.keyboard.press('Enter');
   await page.getByRole('button', { name: /Select Orb/u }).click();
   const canvasImage = compositionCanvas(page).getByRole('img', {
     name: /Texture Lab composition/u,
@@ -452,10 +485,35 @@ test('v0.3 supports remix, reframe, layered selection, and safe Boundary editing
     ),
   ).toBeVisible();
   await expect(rows).toHaveCount(beforeBoundary + 1);
-  await page.getByRole('button', { name: 'Cancel Boundary' }).click();
+  await page.getByRole('button', { name: 'Cancel Boundary' }).focus();
+  await page.keyboard.press('Enter');
 
   await expectNoAxeViolations(page);
 
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);
+});
+
+test('v0.3 starter gallery produces six distinct visible compositions', async ({ page }) => {
+  const starters = [
+    ['cloud-drift', 'Cloud drift'],
+    ['aurora-wave', 'Aurora wave'],
+    ['satin-orb', 'Satin orb'],
+    ['sunset-paper', 'Sunset paper'],
+    ['sea-glass', 'Sea glass'],
+    ['violet-ribbons', 'Violet ribbons'],
+  ] as const;
+
+  await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' });
+  const artboard = page.locator('.scene-artboard__frame');
+
+  for (const [id, label] of starters) {
+    await page.getByRole('button', { name: `Choose ${label} starter` }).click();
+    await expect(layerRows(page)).toHaveCount(3);
+    await expect(artboard).toHaveScreenshot(`v0.3-starter-${id}.png`, {
+      animations: 'disabled',
+      caret: 'hide',
+      scale: 'css',
+    });
+  }
 });

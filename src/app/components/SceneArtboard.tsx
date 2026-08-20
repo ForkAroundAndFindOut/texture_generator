@@ -63,6 +63,15 @@ type DragState = {
   readonly startY: number;
 };
 
+type FreeformClickState = {
+  readonly x: number;
+  readonly y: number;
+  readonly timestamp: number;
+};
+
+const DOUBLE_CLICK_DELAY_MS = 600;
+const DOUBLE_CLICK_DISTANCE_PX = 8;
+
 const aspectRatio = (ratio: SceneV03['artboard']['ratio']): string => ratio.replace(':', ' / ');
 
 const ratioScalar = (ratio: SceneV03['artboard']['ratio']): number => {
@@ -91,6 +100,7 @@ export function SceneArtboard({
   const ir = useMemo(() => compileSceneRenderIR(scene), [scene]);
   const markupRoot = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | undefined>(undefined);
+  const freeformClick = useRef<FreeformClickState | undefined>(undefined);
   const artboardStyle: CSSProperties & Record<'--scene-artboard-ratio', string> = {
     aspectRatio: aspectRatio(scene.artboard.ratio),
     '--scene-artboard-ratio': String(ratioScalar(scene.artboard.ratio)),
@@ -107,6 +117,10 @@ export function SceneArtboard({
       }
     }
   }, [ir, selectedGroupId]);
+
+  useEffect(() => {
+    if (freeformDraft === undefined) freeformClick.current = undefined;
+  }, [freeformDraft]);
 
   function groupIdFromTarget(target: EventTarget | null): GroupId | undefined {
     if (!(target instanceof Element)) return undefined;
@@ -259,7 +273,27 @@ export function SceneArtboard({
             onPointerDown={(event) => {
               if (freeformDraft !== undefined) {
                 const point = artboardPoint(event);
-                if (point !== undefined) onFreeformPoint(point);
+                const previousClick = freeformClick.current;
+                const distance =
+                  previousClick === undefined
+                    ? Number.POSITIVE_INFINITY
+                    : Math.hypot(event.clientX - previousClick.x, event.clientY - previousClick.y);
+                const isDoubleClick =
+                  event.pointerType === 'mouse' &&
+                  previousClick !== undefined &&
+                  event.timeStamp - previousClick.timestamp <= DOUBLE_CLICK_DELAY_MS &&
+                  distance <= DOUBLE_CLICK_DISTANCE_PX;
+                if (isDoubleClick) {
+                  freeformClick.current = undefined;
+                  onCloseFreeform();
+                } else if (point !== undefined) {
+                  freeformClick.current = {
+                    x: event.clientX,
+                    y: event.clientY,
+                    timestamp: event.timeStamp,
+                  };
+                  onFreeformPoint(point);
+                }
                 event.preventDefault();
                 return;
               }
@@ -319,6 +353,7 @@ export function SceneArtboard({
             onDoubleClick={(event) => {
               if (freeformDraft === undefined) return;
               event.preventDefault();
+              freeformClick.current = undefined;
               onCloseFreeform();
             }}
             onKeyDown={(event) => {

@@ -120,3 +120,7 @@ Example — website hero: choose `21:9`, set **Framing** to **Cover**, build wit
 ## v0.3 limits
 
 V0.3 deliberately does not include raster PNG/JPEG export, freehand curves, multi-body or self-intersecting paths, boolean geometry, animation, shader/WebGL effects, liquid distortion, or true 3D rotation. Cube, Sphere, Cylinder, Cone, Pyramid, and Prism are editable 2D silhouettes. These boundaries keep textures fast to author, easy to understand, and portable across screen sizes.
+
+## Release-guide verification
+
+This guide was checked against the finished v0.3 release candidate: its bolded control names are the visible editor labels, and its examples use only the supported vector Scene JSON, SVG, and CSS exports.

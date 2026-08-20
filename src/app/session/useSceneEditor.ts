@@ -409,6 +409,12 @@ export function useSceneEditor(initialScene?: SceneV03) {
     else setFeedback(undefined);
   }
 
+  function importScene(candidate: unknown): boolean {
+    const imported = commit(replaceSceneV03Command(candidate));
+    if (imported) setSelectedGroupId(store.getCurrentRecipe().rootGroups.at(-1)?.id);
+    return imported;
+  }
+
   return {
     scene,
     history: snapshot.history,
@@ -454,6 +460,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
     hoverFreeform,
     placeFreeformPoint,
     applyCanvasDrag,
+    importScene,
     undo,
     redo,
   };

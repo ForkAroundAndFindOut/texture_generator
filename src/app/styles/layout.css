@@ -1651,6 +1651,25 @@ summary:focus-visible {
   padding: 0.34rem 0.4rem;
 }
 
+.scene-export-panel {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.scene-export-panel h2 {
+  margin: 0;
+  color: #f7fbff;
+  font-size: 1rem;
+  letter-spacing: -0.015em;
+}
+
+.scene-export-panel__copy {
+  margin: 0;
+  color: #a9bad3;
+  font-size: 0.74rem;
+  line-height: 1.43;
+}
+
 @media (max-width: 72rem) {
   .editor-layout {
     height: auto;

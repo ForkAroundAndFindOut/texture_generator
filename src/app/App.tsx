@@ -3,6 +3,7 @@ import { HistoryControls } from './components/HistoryControls';
 import { SceneArtboard } from './components/SceneArtboard';
 import { EditorLayout } from './layout/EditorLayout';
 import { SceneArtboardControls } from './panels/SceneArtboardControls';
+import { SceneExportPanel } from './panels/SceneExportPanel';
 import { SceneLayerInspector } from './panels/SceneLayerInspector';
 import { SceneLayerPanel } from './panels/SceneLayerPanel';
 import { ScenePalettePanel } from './panels/ScenePalettePanel';
@@ -90,6 +91,7 @@ export function App({ initialScene, className }: AppProps) {
             onBackgroundChange={editor.updateBackground}
             onPaletteChange={editor.updatePaletteEntry}
           />
+          <SceneExportPanel scene={editor.scene} onImportScene={editor.importScene} />
         </>
       }
       headerActions={
@@ -101,7 +103,12 @@ export function App({ initialScene, className }: AppProps) {
           onRedo={editor.redo}
         />
       }
-      exportDisabled
+      onExport={() => {
+        if (typeof document === 'undefined') return;
+        const panel = document.getElementById('texture-lab-export-panel');
+        panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        panel?.focus();
+      }}
       previewStatus={`${editor.scene.rootGroups.length} layers · ${saveStatus}`}
       sessionStatus={
         <p>

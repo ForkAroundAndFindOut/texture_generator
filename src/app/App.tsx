@@ -32,6 +32,7 @@ export function App({ initialScene, className }: AppProps) {
           fitMode={editor.scene.artboard.fitMode}
           onRatioChange={(ratio) => editor.updateArtboard({ ratio })}
           onFitModeChange={(fitMode) => editor.updateArtboard({ fitMode })}
+          onReframe={editor.reframeVisibleContent}
         />
       }
       sidebar={

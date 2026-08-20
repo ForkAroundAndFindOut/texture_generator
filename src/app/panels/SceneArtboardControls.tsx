@@ -5,6 +5,7 @@ export type SceneArtboardControlsProps = {
   readonly fitMode: ArtboardFitMode;
   readonly onRatioChange: (ratio: ArtboardRatio) => void;
   readonly onFitModeChange: (fitMode: ArtboardFitMode) => void;
+  readonly onReframe: () => void;
 };
 
 /** Ratio changes intentionally crop/viewBox only; they never stretch stored geometry. */
@@ -13,6 +14,7 @@ export function SceneArtboardControls({
   fitMode,
   onRatioChange,
   onFitModeChange,
+  onReframe,
 }: SceneArtboardControlsProps) {
   return (
     <section className="scene-artboard-controls" aria-labelledby="scene-artboard-controls-title">
@@ -43,6 +45,9 @@ export function SceneArtboardControls({
           <option value="fit">Fit</option>
         </select>
       </label>
+      <button type="button" onClick={onReframe}>
+        Reframe visible content
+      </button>
       <p>Ratios crop the shared coordinate world; your objects keep their proportions.</p>
     </section>
   );

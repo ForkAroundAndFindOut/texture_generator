@@ -17,6 +17,7 @@ import {
   duplicateSceneLayerCommand,
   readStoredSceneV03,
   remixScenePaletteCommand,
+  reframeSceneContentCommand,
   renameSceneLayerCommand,
   reorderSceneLayerCommand,
   replaceSceneV03Command,
@@ -251,6 +252,10 @@ export function useSceneEditor(initialScene?: SceneV03) {
     commit(updateSceneArtboardCommand(patch));
   }
 
+  function reframeVisibleContent(): void {
+    commit(reframeSceneContentCommand());
+  }
+
   function updateBackground(color: string): void {
     commit(updateSceneBackgroundCommand(color));
   }
@@ -458,6 +463,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
     updateTransform,
     updateMaterial,
     updateArtboard,
+    reframeVisibleContent,
     updateBackground,
     updatePaletteEntry,
     remixPalette,

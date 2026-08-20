@@ -14,14 +14,18 @@ import {
   createSceneEditorStore,
   deleteSceneLayerCommand,
   duplicateSceneLayerCommand,
+  reframeSceneContentCommand,
+  SCENE_REFRAME_SAFE_PADDING,
   renameSceneLayerCommand,
   reorderSceneLayerCommand,
   replaceSceneV03Command,
   setSceneLayerVisibilityCommand,
   updateSceneLayerTransformCommand,
+  updateSceneArtboardCommand,
   updateScenePaletteEntryCommand,
   type SceneStoragePort,
 } from '../../../src/editor';
+import { compileSceneRenderIR, transformSceneRenderPoint } from '../../../src/renderers';
 
 class MemoryStorage implements SceneStoragePort {
   readonly values = new Map<string, string>();
@@ -170,5 +174,56 @@ describe('v0.3 scene editor commands', () => {
     expect(canonicalSceneV03String(store.getCurrentRecipe())).toBe(beforeScene);
     expect(store.getSnapshot().history.entries).toHaveLength(beforeHistoryLength);
     expect(storage.getItem('texture-lab/scene-v0.3/latest')).toBe(beforeStorage);
+  });
+
+  it('reframes only when explicitly requested and restores the exact prior composition on Undo', () => {
+    const store = createSceneEditorStore(createBlankSceneV03());
+    const context = createSceneCommandContext({ value: 400 });
+    commit(store, addSceneLayerCommand(material(store.getCurrentRecipe(), 'Back field'), context));
+    const groupId = store.getCurrentRecipe().rootGroups[0]!.id;
+    commit(
+      store,
+      updateSceneLayerTransformCommand(groupId, {
+        translation: { x: 0.22, y: 0.76 },
+        uniformScale: 0.45,
+      }),
+    );
+    const beforeTransform = structuredClone(store.getCurrentRecipe().rootGroups[0]!.transform);
+    const beforeRatio = canonicalSceneV03String(store.getCurrentRecipe());
+    commit(store, updateSceneArtboardCommand({ ratio: '21:9' }));
+    expect(store.getCurrentRecipe().rootGroups[0]?.transform).toEqual(beforeTransform);
+    const beforeReframe = canonicalSceneV03String(store.getCurrentRecipe());
+
+    commit(store, reframeSceneContentCommand());
+    const afterReframe = canonicalSceneV03String(store.getCurrentRecipe());
+    expect(afterReframe).not.toBe(beforeReframe);
+    expect(store.getCurrentRecipe().rootGroups[0]?.transform.rotationDeg).toBe(0);
+    const ir = compileSceneRenderIR(store.getCurrentRecipe());
+    const points = ir.materials.flatMap((material) =>
+      material.path.commands.flatMap((command) =>
+        command.kind === 'move' || command.kind === 'line'
+          ? [transformSceneRenderPoint(material.path.matrix, command)]
+          : [],
+      ),
+    );
+    const viewBox = ir.artboard.viewBox;
+    const paddingX = viewBox.width * SCENE_REFRAME_SAFE_PADDING;
+    const paddingY = viewBox.height * SCENE_REFRAME_SAFE_PADDING;
+    expect(Math.min(...points.map((point) => point.x))).toBeGreaterThanOrEqual(
+      viewBox.minX + paddingX - 0.01,
+    );
+    expect(Math.max(...points.map((point) => point.x))).toBeLessThanOrEqual(
+      viewBox.minX + viewBox.width - paddingX + 0.01,
+    );
+    expect(Math.min(...points.map((point) => point.y))).toBeGreaterThanOrEqual(
+      viewBox.minY + paddingY - 0.01,
+    );
+    expect(Math.max(...points.map((point) => point.y))).toBeLessThanOrEqual(
+      viewBox.minY + viewBox.height - paddingY + 0.01,
+    );
+    expect(store.undo().ok).toBe(true);
+    expect(canonicalSceneV03String(store.getCurrentRecipe())).toBe(beforeReframe);
+    expect(store.redo().ok).toBe(true);
+    expect(canonicalSceneV03String(store.getCurrentRecipe())).toBe(afterReframe);
   });
 });

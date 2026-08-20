@@ -39,6 +39,7 @@ import {
   type SceneV03ValidationDiagnostic,
 } from '../../domain';
 import { cloneRecipe, type CandidateResult, type DesignCommand } from '../state/commands';
+import { compileSceneRenderIR, SCENE_WORLD_SIZE, transformSceneRenderPoint } from '../../renderers';
 
 export type SceneCommandDiagnostic = SceneV03ValidationDiagnostic & {
   readonly recovery: string;
@@ -83,6 +84,9 @@ const ID_BYTES = 16;
 const MAX_ID_ALLOCATION_ATTEMPTS = 64;
 const MAX_NAME_LENGTH = 80;
 const COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/u;
+
+/** Empty breathing room retained around content by the explicit Reframe action. */
+export const SCENE_REFRAME_SAFE_PADDING = 0.08;
 
 const diagnostic = (
   code: string,
@@ -942,6 +946,115 @@ export function updateSceneArtboardCommand(
       { ...cloneRecipe(current), artboard: { ...current.artboard, ...patch } },
       'Update artboard',
     );
+  });
+}
+
+type SceneContentBounds = Readonly<{
+  readonly minX: number;
+  readonly minY: number;
+  readonly maxX: number;
+  readonly maxY: number;
+}>;
+
+function visibleSceneContentBounds(scene: SceneV03): SceneContentBounds | undefined {
+  const ir = compileSceneRenderIR(scene);
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let hasPoint = false;
+
+  for (const material of ir.materials) {
+    if (!material.visible) continue;
+    for (const pathCommand of material.path.commands) {
+      if (pathCommand.kind !== 'move' && pathCommand.kind !== 'line') continue;
+      const point = transformSceneRenderPoint(material.path.matrix, pathCommand);
+      minX = Math.min(minX, point.x);
+      minY = Math.min(minY, point.y);
+      maxX = Math.max(maxX, point.x);
+      maxY = Math.max(maxY, point.y);
+      hasPoint = true;
+    }
+  }
+  return hasPoint ? { minX, minY, maxX, maxY } : undefined;
+}
+
+/**
+ * Fits all visible source geometry into the current artboard with safe
+ * padding. It is deliberately explicit: changing a ratio never invokes this
+ * operation on the user's behalf.
+ */
+export function reframeSceneContentCommand(): DesignCommand<SceneV03, SceneCommandDiagnostic> {
+  return command('scene-content-reframe', 'Reframe visible content', (current) => {
+    const bounds = visibleSceneContentBounds(current);
+    if (bounds === undefined) {
+      return failure(
+        diagnostic(
+          'no-visible-content',
+          '/rootGroups',
+          'Reframe needs at least one visible material.',
+          'Show or add a material, then reframe the composition.',
+        ),
+      );
+    }
+    const sourceWidth = bounds.maxX - bounds.minX;
+    const sourceHeight = bounds.maxY - bounds.minY;
+    if (sourceWidth <= 0 || sourceHeight <= 0) {
+      return failure(
+        diagnostic(
+          'invalid-content-bounds',
+          '/rootGroups',
+          'Reframe could not measure the visible content.',
+          'Adjust the visible Boundary and try Reframe again.',
+        ),
+      );
+    }
+    const viewBox = compileSceneRenderIR(current).artboard.viewBox;
+    const availableWidth = viewBox.width * (1 - SCENE_REFRAME_SAFE_PADDING * 2);
+    const availableHeight = viewBox.height * (1 - SCENE_REFRAME_SAFE_PADDING * 2);
+    const scale = Math.min(availableWidth / sourceWidth, availableHeight / sourceHeight);
+    if (!Number.isFinite(scale) || scale <= 0) {
+      return failure(
+        diagnostic(
+          'invalid-reframe-scale',
+          '/rootGroups',
+          'Reframe could not calculate a safe scale.',
+          'Keep a non-zero visible Boundary and try again.',
+        ),
+      );
+    }
+
+    const sourceCenter = {
+      x: (bounds.minX + sourceWidth / 2) / SCENE_WORLD_SIZE,
+      y: (bounds.minY + sourceHeight / 2) / SCENE_WORLD_SIZE,
+    };
+    const targetCenter = {
+      x: (viewBox.minX + viewBox.width / 2) / SCENE_WORLD_SIZE,
+      y: (viewBox.minY + viewBox.height / 2) / SCENE_WORLD_SIZE,
+    };
+    const rootGroups = current.rootGroups.map((group) => {
+      const transform: GroupTransform = {
+        translation: {
+          x: targetCenter.x + scale * (group.transform.translation.x - sourceCenter.x),
+          y: targetCenter.y + scale * (group.transform.translation.y - sourceCenter.y),
+        },
+        uniformScale: group.transform.uniformScale * scale,
+        rotationDeg: group.transform.rotationDeg,
+      };
+      return { ...cloneRecipe(group), transform };
+    });
+    const invalidTransform = rootGroups
+      .map((group) => validateCompleteGroupTransform(group.transform))
+      .find((diagnostics) => diagnostics.length > 0)?.[0];
+    if (invalidTransform !== undefined) {
+      return failure({
+        ...invalidTransform,
+        code: 'reframe-out-of-range',
+        message: 'Reframe would exceed the safe layer transform limits.',
+        recovery: 'Move or scale the current layers closer together, then reframe again.',
+      });
+    }
+    return finalize({ ...cloneRecipe(current), rootGroups }, 'Reframe visible content');
   });
 }
 

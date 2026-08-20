@@ -4,6 +4,7 @@ export {
   createSceneCommandContext,
   deleteSceneLayerCommand,
   duplicateSceneLayerCommand,
+  reframeSceneContentCommand,
   remixScenePaletteCommand,
   renameSceneLayerCommand,
   reorderSceneLayerCommand,
@@ -15,6 +16,7 @@ export {
   updateSceneMaterialCommand,
   updateScenePaletteEntryCommand,
 } from './commands';
+export { SCENE_REFRAME_SAFE_PADDING } from './commands';
 export type {
   SceneArtboardPatch,
   SceneCommandContext,

@@ -72,7 +72,14 @@ export function App({ initialScene, className }: AppProps) {
           {...(editor.freeformDraft === undefined ? {} : { freeformDraft: editor.freeformDraft })}
           onFreeformPoint={editor.placeFreeformPoint}
           onFreeformHover={editor.hoverFreeform}
+          onCloseFreeform={editor.closeFreeform}
           onCancelFreeform={editor.cancelFreeform}
+          {...(editor.boundaryEditor === undefined
+            ? {}
+            : { boundaryEditor: editor.boundaryEditor })}
+          onBoundaryVertexEdit={editor.applyBoundaryVertexEdit}
+          onInsertBoundaryVertex={editor.insertBoundaryVertex}
+          onCancelBoundaryEdit={editor.cancelBoundaryEdit}
         />
       }
       panels={
@@ -85,6 +92,17 @@ export function App({ initialScene, className }: AppProps) {
             palette={editor.scene.palette}
             onUpdateTransform={editor.updateTransform}
             onUpdateMaterial={editor.updateMaterial}
+            boundaryEditing={editor.boundaryEditor !== undefined}
+            {...(editor.boundaryEditor?.selectedVertexIndex === undefined
+              ? {}
+              : { selectedBoundaryVertexIndex: editor.boundaryEditor.selectedVertexIndex })}
+            onToggleBoundaryEdit={editor.toggleBoundaryEdit}
+            onRemoveBoundaryVertex={() =>
+              editor.removeBoundaryVertex(
+                editor.boundaryEditor?.materialId ?? '',
+                editor.boundaryEditor?.selectedVertexIndex,
+              )
+            }
           />
           <ScenePalettePanel
             background={editor.scene.background}

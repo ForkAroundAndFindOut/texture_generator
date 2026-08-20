@@ -74,6 +74,7 @@ export {
   updateSceneBackgroundCommand,
   updateSceneLayerTransformCommand,
   updateSceneMaterialCommand,
+  updateSceneMaterialBoundaryCommand,
   updateScenePaletteEntryCommand,
   writeStoredSceneV03,
 } from './scene';

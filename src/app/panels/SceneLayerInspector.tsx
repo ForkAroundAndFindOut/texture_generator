@@ -14,6 +14,10 @@ export type SceneLayerInspectorProps = {
   readonly palette: readonly ScenePaletteEntry[];
   readonly onUpdateTransform: (groupId: GroupId, patch: SceneLayerTransformPatch) => void;
   readonly onUpdateMaterial: (materialId: string, patch: SceneMaterialPatch) => void;
+  readonly boundaryEditing: boolean;
+  readonly selectedBoundaryVertexIndex?: number;
+  readonly onToggleBoundaryEdit: () => void;
+  readonly onRemoveBoundaryVertex: () => void;
 };
 
 type NumericControlProps = {
@@ -122,6 +126,10 @@ export function SceneLayerInspector({
   palette,
   onUpdateTransform,
   onUpdateMaterial,
+  boundaryEditing,
+  selectedBoundaryVertexIndex,
+  onToggleBoundaryEdit,
+  onRemoveBoundaryVertex,
 }: SceneLayerInspectorProps) {
   if (group === undefined || material === undefined) {
     return (
@@ -232,6 +240,30 @@ export function SceneLayerInspector({
           value={material.bloom}
           onChange={(bloom) => update({ bloom })}
         />
+      </fieldset>
+      <fieldset>
+        <legend>Boundary</legend>
+        <button type="button" aria-pressed={boundaryEditing} onClick={onToggleBoundaryEdit}>
+          {boundaryEditing ? 'Finish Boundary editing' : 'Edit Boundary'}
+        </button>
+        {boundaryEditing ? (
+          <>
+            <p className="scene-layer-inspector__hint">
+              Drag a corner on the canvas. Click a midpoint to add a corner, then select a corner to
+              remove it. The solid body cannot cross itself.
+            </p>
+            <button
+              type="button"
+              disabled={
+                selectedBoundaryVertexIndex === undefined ||
+                material.geometry.boundary.vertices.length <= 3
+              }
+              onClick={onRemoveBoundaryVertex}
+            >
+              Remove selected Boundary point
+            </button>
+          </>
+        ) : null}
       </fieldset>
       <fieldset>
         <legend>Interaction</legend>

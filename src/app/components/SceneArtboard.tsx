@@ -7,12 +7,22 @@ import {
 } from 'react';
 
 import type { GroupId, ScenePoint, SceneV03 } from '../../domain';
-import { compileSceneRenderIR, DomSceneSvgRenderer } from '../../renderers';
+import {
+  compileSceneRenderIR,
+  DomSceneSvgRenderer,
+  transformSceneRenderPoint,
+} from '../../renderers';
 
 export type SceneFreeformDraftProps = Readonly<{
   readonly points: readonly ScenePoint[];
   readonly hoverPoint?: ScenePoint;
   readonly canClose: boolean;
+}>;
+
+export type SceneBoundaryEditorProps = Readonly<{
+  readonly materialId: string;
+  readonly vertices: readonly ScenePoint[];
+  readonly selectedVertexIndex?: number;
 }>;
 
 export type SceneArtboardProps = {
@@ -29,7 +39,21 @@ export type SceneArtboardProps = {
   readonly freeformDraft?: SceneFreeformDraftProps;
   readonly onFreeformPoint: (point: ScenePoint) => void;
   readonly onFreeformHover: (point: ScenePoint | undefined) => void;
+  readonly onCloseFreeform: () => void;
   readonly onCancelFreeform: () => void;
+  readonly boundaryEditor?: SceneBoundaryEditorProps;
+  readonly onBoundaryVertexEdit: (
+    materialId: string,
+    vertexIndex: number,
+    phase: 'start' | 'move' | 'end' | 'cancel',
+    point?: ScenePoint,
+  ) => void;
+  readonly onInsertBoundaryVertex: (
+    materialId: string,
+    afterIndex: number,
+    point: ScenePoint,
+  ) => void;
+  readonly onCancelBoundaryEdit: () => void;
 };
 
 type DragState = {
@@ -57,7 +81,12 @@ export function SceneArtboard({
   freeformDraft,
   onFreeformPoint,
   onFreeformHover,
+  onCloseFreeform,
   onCancelFreeform,
+  boundaryEditor,
+  onBoundaryVertexEdit,
+  onInsertBoundaryVertex,
+  onCancelBoundaryEdit,
 }: SceneArtboardProps) {
   const ir = useMemo(() => compileSceneRenderIR(scene), [scene]);
   const markupRoot = useRef<HTMLDivElement>(null);
@@ -81,9 +110,35 @@ export function SceneArtboard({
 
   function groupIdFromTarget(target: EventTarget | null): GroupId | undefined {
     if (!(target instanceof Element)) return undefined;
-    return (
-      target.closest('[data-scene-group-id]')?.getAttribute('data-scene-group-id') ?? undefined
-    );
+    const rootIds = new Set(scene.rootGroups.map((group) => group.id));
+    let current: Element | null = target;
+    while (current !== null) {
+      const candidate = current.getAttribute('data-scene-group-id');
+      if (candidate !== null && rootIds.has(candidate)) return candidate;
+      current = current.parentElement;
+    }
+    return undefined;
+  }
+
+  function selectGroupUnderPointer(target: EventTarget | null): void {
+    const hitGroupId = groupIdFromTarget(target);
+    const frontToBackIds = scene.rootGroups
+      .filter((group) => group.visible)
+      .map((group) => group.id)
+      .reverse();
+    if (hitGroupId === undefined || frontToBackIds.length === 0) {
+      onClearSelection();
+      return;
+    }
+    // Repeated Alt/Option-clicks continue from the current obscured selection.
+    // The first click begins at the visual group that received the pointer.
+    const current =
+      selectedGroupId !== undefined && frontToBackIds.includes(selectedGroupId)
+        ? selectedGroupId
+        : hitGroupId;
+    const index = frontToBackIds.indexOf(current);
+    const next = frontToBackIds[(index + 1) % frontToBackIds.length];
+    if (next !== undefined) onSelectGroup(next);
   }
 
   function dragDelta(event: ReactPointerEvent<HTMLDivElement>, state: DragState) {
@@ -98,7 +153,9 @@ export function SceneArtboard({
     };
   }
 
-  function artboardPoint(event: ReactPointerEvent<HTMLDivElement>): ScenePoint | undefined {
+  function artboardPoint(
+    event: Pick<ReactPointerEvent<Element>, 'clientX' | 'clientY'>,
+  ): ScenePoint | undefined {
     const svg = markupRoot.current?.querySelector('svg');
     const box = svg?.getBoundingClientRect();
     if (box === undefined || box === null || box.width <= 0 || box.height <= 0) return undefined;
@@ -115,6 +172,42 @@ export function SceneArtboard({
     };
   }
 
+  const boundaryMaterial =
+    boundaryEditor === undefined
+      ? undefined
+      : ir.materials.find((material) => material.id === boundaryEditor.materialId);
+
+  function worldPointInArtboard(point: ScenePoint): {
+    readonly left: string;
+    readonly top: string;
+  } {
+    return {
+      left: `${((point.x - ir.artboard.viewBox.minX) / ir.artboard.viewBox.width) * 100}%`,
+      top: `${((point.y - ir.artboard.viewBox.minY) / ir.artboard.viewBox.height) * 100}%`,
+    };
+  }
+
+  function boundaryPointFromEvent(
+    event: Pick<ReactPointerEvent<Element>, 'clientX' | 'clientY'>,
+  ): ScenePoint | undefined {
+    if (boundaryMaterial === undefined) return undefined;
+    const relative = artboardPoint(event);
+    if (relative === undefined) return undefined;
+    const world = {
+      x: ir.artboard.viewBox.minX + relative.x * ir.artboard.viewBox.width,
+      y: ir.artboard.viewBox.minY + relative.y * ir.artboard.viewBox.height,
+    };
+    const matrix = boundaryMaterial.path.matrix;
+    const determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+    if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-9) return undefined;
+    const translatedX = world.x - matrix.e;
+    const translatedY = world.y - matrix.f;
+    return {
+      x: (matrix.d * translatedX - matrix.c * translatedY) / determinant,
+      y: (-matrix.b * translatedX + matrix.a * translatedY) / determinant,
+    };
+  }
+
   const previewPoints =
     freeformDraft === undefined
       ? []
@@ -125,6 +218,13 @@ export function SceneArtboard({
   const firstDraftPoint = freeformDraft?.points[0];
   const firstDraftPointInViewBox =
     firstDraftPoint === undefined ? undefined : pointInViewBox(firstDraftPoint);
+  const boundaryEditorPoints =
+    boundaryEditor === undefined || boundaryMaterial === undefined || freeformDraft !== undefined
+      ? []
+      : boundaryEditor.vertices.map((point) => ({
+          local: point,
+          world: transformSceneRenderPoint(boundaryMaterial.path.matrix, point),
+        }));
 
   return (
     <section className="scene-artboard" aria-label="Composition canvas" data-scene-artboard>
@@ -146,11 +246,14 @@ export function SceneArtboard({
                 event.preventDefault();
                 return;
               }
-              const target = event.target;
-              if (!(target instanceof Element)) return;
-              const group = target.closest('[data-scene-group-id]');
-              const groupId = group?.getAttribute('data-scene-group-id');
-              if (groupId === null || groupId === undefined) onClearSelection();
+              if (boundaryEditor !== undefined) return;
+              if (event.altKey) {
+                event.preventDefault();
+                selectGroupUnderPointer(event.target);
+                return;
+              }
+              const groupId = groupIdFromTarget(event.target);
+              if (groupId === undefined) onClearSelection();
               else onSelectGroup(groupId);
             }}
             onPointerDown={(event) => {
@@ -160,6 +263,8 @@ export function SceneArtboard({
                 event.preventDefault();
                 return;
               }
+              if (boundaryEditor !== undefined) return;
+              if (event.altKey) return;
               const groupId = groupIdFromTarget(event.target);
               if (groupId === undefined) {
                 onClearSelection();
@@ -179,6 +284,7 @@ export function SceneArtboard({
                 onFreeformHover(artboardPoint(event));
                 return;
               }
+              if (boundaryEditor !== undefined) return;
               const state = drag.current;
               if (state === undefined || state.pointerId !== event.pointerId) return;
               const delta = dragDelta(event, state);
@@ -186,6 +292,7 @@ export function SceneArtboard({
             }}
             onPointerUp={(event) => {
               if (freeformDraft !== undefined) return;
+              if (boundaryEditor !== undefined) return;
               const state = drag.current;
               if (state === undefined || state.pointerId !== event.pointerId) return;
               const delta = dragDelta(event, state);
@@ -200,6 +307,7 @@ export function SceneArtboard({
                 onFreeformHover(undefined);
                 return;
               }
+              if (boundaryEditor !== undefined) return;
               const state = drag.current;
               if (state === undefined || state.pointerId !== event.pointerId) return;
               onDrag(state.groupId, 'cancel');
@@ -208,10 +316,23 @@ export function SceneArtboard({
             onPointerLeave={() => {
               if (freeformDraft !== undefined) onFreeformHover(undefined);
             }}
+            onDoubleClick={(event) => {
+              if (freeformDraft === undefined) return;
+              event.preventDefault();
+              onCloseFreeform();
+            }}
             onKeyDown={(event) => {
+              if (freeformDraft !== undefined && event.key === 'Enter') {
+                event.preventDefault();
+                onCloseFreeform();
+              }
               if (freeformDraft !== undefined && event.key === 'Escape') {
                 event.preventDefault();
                 onCancelFreeform();
+              }
+              if (boundaryEditor !== undefined && event.key === 'Escape') {
+                event.preventDefault();
+                onCancelBoundaryEdit();
               }
             }}
           >
@@ -255,6 +376,84 @@ export function SceneArtboard({
               ) : null}
             </svg>
           )}
+          {boundaryEditor === undefined ||
+          boundaryMaterial === undefined ||
+          freeformDraft !== undefined ? null : (
+            <div
+              className="scene-artboard__boundary-editor"
+              aria-label="Boundary editing controls"
+              role="group"
+            >
+              {boundaryEditorPoints.map(({ local, world }, index) => (
+                <button
+                  key={`vertex-${index}-${local.x}-${local.y}`}
+                  type="button"
+                  className={`scene-artboard__boundary-handle${boundaryEditor.selectedVertexIndex === index ? ' is-selected' : ''}`}
+                  aria-label={`Boundary corner ${index + 1}`}
+                  style={worldPointInArtboard(world)}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    onBoundaryVertexEdit(boundaryEditor.materialId, index, 'start');
+                  }}
+                  onPointerMove={(event) => {
+                    const point = boundaryPointFromEvent(event);
+                    if (point !== undefined) {
+                      onBoundaryVertexEdit(boundaryEditor.materialId, index, 'move', point);
+                    }
+                  }}
+                  onPointerUp={(event) => {
+                    event.preventDefault();
+                    onBoundaryVertexEdit(boundaryEditor.materialId, index, 'end');
+                    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                      event.currentTarget.releasePointerCapture(event.pointerId);
+                    }
+                  }}
+                  onPointerCancel={() =>
+                    onBoundaryVertexEdit(boundaryEditor.materialId, index, 'cancel')
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onBoundaryVertexEdit(boundaryEditor.materialId, index, 'start');
+                      onBoundaryVertexEdit(boundaryEditor.materialId, index, 'end');
+                    }
+                  }}
+                >
+                  <span className="visually-hidden">Corner {index + 1}</span>
+                </button>
+              ))}
+              {boundaryEditorPoints.map(({ local, world }, index) => {
+                const next = boundaryEditorPoints[(index + 1) % boundaryEditorPoints.length];
+                if (next === undefined) return null;
+                const midpoint = {
+                  x: (local.x + next.local.x) / 2,
+                  y: (local.y + next.local.y) / 2,
+                };
+                const worldMidpoint = {
+                  x: (world.x + next.world.x) / 2,
+                  y: (world.y + next.world.y) / 2,
+                };
+                return (
+                  <button
+                    key={`midpoint-${index}`}
+                    type="button"
+                    className="scene-artboard__boundary-midpoint"
+                    aria-label={`Insert Boundary corner after corner ${index + 1}`}
+                    style={worldPointInArtboard(worldMidpoint)}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onInsertBoundaryVertex(boundaryEditor.materialId, index, midpoint);
+                    }}
+                  >
+                    <span aria-hidden="true">+</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {scene.rootGroups.length === 0 ? (
             <p className="scene-artboard__empty">
               Pick a starter or add a visual gesture. New layers always appear on top.
@@ -264,7 +463,7 @@ export function SceneArtboard({
       </div>
       <p className="scene-artboard__caption">
         {scene.artboard.ratio} artboard · {scene.artboard.fitMode === 'fit' ? 'Fit' : 'Cover'}{' '}
-        framing · vector preview
+        framing · vector preview · Alt/Option-click cycles visible layers under the pointer
         {freeformDraft === undefined
           ? ''
           : ` · Drawing Boundary (${freeformDraft.points.length}/64 points)`}

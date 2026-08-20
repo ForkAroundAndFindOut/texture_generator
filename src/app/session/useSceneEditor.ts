@@ -5,6 +5,7 @@ import {
   type GroupId,
   type SceneGroup,
   type SceneMaterial,
+  type SceneNode,
   type ScenePoint,
   type SceneV03,
 } from '../../domain';
@@ -26,6 +27,7 @@ import {
   updateSceneBackgroundCommand,
   updateSceneLayerTransformCommand,
   updateSceneMaterialCommand,
+  updateSceneMaterialBoundaryCommand,
   updateScenePaletteEntryCommand,
   type SceneArtboardPatch,
   type SceneCommandDiagnostic,
@@ -51,6 +53,15 @@ type ActiveCanvasGesture = {
   readonly group: ReturnType<SceneStore['beginInteraction']>;
   readonly baseScene: SceneV03;
   readonly groupId: GroupId;
+  latestCandidate: SceneV03;
+  changed: boolean;
+};
+
+type ActiveBoundaryGesture = {
+  readonly group: ReturnType<SceneStore['beginInteraction']>;
+  readonly baseScene: SceneV03;
+  readonly materialId: string;
+  readonly vertexIndex: number;
   latestCandidate: SceneV03;
   changed: boolean;
 };
@@ -121,6 +132,23 @@ function firstMaterial(group: SceneGroup | undefined): SceneMaterial | undefined
   return undefined;
 }
 
+function findSceneMaterial(node: SceneNode, materialId: string): SceneMaterial | undefined {
+  if (node.kind === 'material') return node.id === materialId ? node : undefined;
+  for (const child of node.children) {
+    const material = findSceneMaterial(child, materialId);
+    if (material !== undefined) return material;
+  }
+  return undefined;
+}
+
+function materialInScene(scene: SceneV03, materialId: string): SceneMaterial | undefined {
+  for (const group of scene.rootGroups) {
+    const material = findSceneMaterial(group, materialId);
+    if (material !== undefined) return material;
+  }
+  return undefined;
+}
+
 function feedbackFrom(diagnostics: readonly SceneCommandDiagnostic[]): string {
   return diagnostics[0]?.message ?? 'That change could not be applied. Keep the last valid scene.';
 }
@@ -147,8 +175,15 @@ export function useSceneEditor(initialScene?: SceneV03) {
   const sequence = useRef({ value: 10_000 });
   const disposeTimer = useRef<BrowserTimer | undefined>(undefined);
   const activeCanvasGesture = useRef<ActiveCanvasGesture | undefined>(undefined);
+  const activeBoundaryGesture = useRef<ActiveBoundaryGesture | undefined>(undefined);
   const [freeformDraft, setFreeformDraft] = useState<MutableFreeformDraft | undefined>(undefined);
   const freeformDraftRef = useRef<MutableFreeformDraft | undefined>(undefined);
+  const [boundaryEditMaterialId, setBoundaryEditMaterialId] = useState<string | undefined>(
+    undefined,
+  );
+  const [selectedBoundaryVertexIndex, setSelectedBoundaryVertexIndex] = useState<
+    number | undefined
+  >(undefined);
 
   useEffect(() => {
     if (disposeTimer.current !== undefined) globalThis.clearTimeout(disposeTimer.current);
@@ -181,6 +216,11 @@ export function useSceneEditor(initialScene?: SceneV03) {
     replaceFreeformDraft(undefined);
   }
 
+  function discardBoundaryEdit(): void {
+    setBoundaryEditMaterialId(undefined);
+    setSelectedBoundaryVertexIndex(undefined);
+  }
+
   function settleCanvasGesture(commitChange: boolean): void {
     const active = activeCanvasGesture.current;
     if (active === undefined) return;
@@ -192,8 +232,20 @@ export function useSceneEditor(initialScene?: SceneV03) {
     if (!result.ok) setFeedback(feedbackFrom(result.diagnostics));
   }
 
+  function settleBoundaryGesture(commitChange: boolean): void {
+    const active = activeBoundaryGesture.current;
+    if (active === undefined) return;
+    const result =
+      commitChange && active.changed
+        ? store.finishInteraction(active.group, active.latestCandidate)
+        : store.cancelInteraction(active.group);
+    activeBoundaryGesture.current = undefined;
+    if (!result.ok) setFeedback(feedbackFrom(result.diagnostics));
+  }
+
   function commit(command: DesignCommand<SceneV03, SceneCommandDiagnostic>): boolean {
     settleCanvasGesture(true);
+    settleBoundaryGesture(true);
     discardFreeformDraft();
     const result = store.commitDesignCommand(command);
     if (!result.ok) {
@@ -270,6 +322,8 @@ export function useSceneEditor(initialScene?: SceneV03) {
 
   function beginFreeform(): void {
     settleCanvasGesture(true);
+    settleBoundaryGesture(true);
+    discardBoundaryEdit();
     replaceFreeformDraft({ points: [] });
     setSelectedGroupId(undefined);
     setFeedback(
@@ -307,34 +361,40 @@ export function useSceneEditor(initialScene?: SceneV03) {
     });
   }
 
+  function closeFreeform(): void {
+    const draft = freeformDraftRef.current;
+    if (draft === undefined) return;
+    const closure = checkFreeformClosure(draft.points);
+    if (!closure.ok) {
+      setFeedback(closure.message);
+      return;
+    }
+    try {
+      const template = createFreeformLayerTemplate(scene, draft.points);
+      if (
+        commit(
+          addSceneLayerAtTransformCommand(
+            template.material,
+            template.transform,
+            createSceneCommandContext(sequence.current),
+          ),
+        )
+      ) {
+        setSelectedGroupId(store.getCurrentRecipe().rootGroups.at(-1)?.id);
+        setFeedback(
+          'Freeform Boundary added on top. Refine its color, edge fade, and interaction.',
+        );
+      }
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'The Boundary could not be created.');
+    }
+  }
+
   function placeFreeformPoint(point: ScenePoint): void {
     const draft = freeformDraftRef.current;
     if (draft === undefined) return;
     if (isNearFreeformStart(draft.points, point)) {
-      const closure = checkFreeformClosure(draft.points);
-      if (!closure.ok) {
-        setFeedback(closure.message);
-        return;
-      }
-      try {
-        const template = createFreeformLayerTemplate(scene, draft.points);
-        if (
-          commit(
-            addSceneLayerAtTransformCommand(
-              template.material,
-              template.transform,
-              createSceneCommandContext(sequence.current),
-            ),
-          )
-        ) {
-          setSelectedGroupId(store.getCurrentRecipe().rootGroups.at(-1)?.id);
-          setFeedback(
-            'Freeform Boundary added on top. Refine its color, edge fade, and interaction.',
-          );
-        }
-      } catch (error) {
-        setFeedback(error instanceof Error ? error.message : 'The Boundary could not be created.');
-      }
+      closeFreeform();
       return;
     }
     const append = checkFreeformAppend(draft.points, point);
@@ -351,6 +411,150 @@ export function useSceneEditor(initialScene?: SceneV03) {
     );
   }
 
+  function toggleBoundaryEdit(): void {
+    if (selectedMaterial === undefined) {
+      setFeedback('Select one material before editing its Boundary.');
+      return;
+    }
+    settleCanvasGesture(true);
+    settleBoundaryGesture(true);
+    discardFreeformDraft();
+    if (boundaryEditMaterialId === selectedMaterial.id) {
+      discardBoundaryEdit();
+      setFeedback('Boundary editing finished.');
+      return;
+    }
+    setBoundaryEditMaterialId(selectedMaterial.id);
+    setSelectedBoundaryVertexIndex(undefined);
+    setFeedback('Drag a corner, click a midpoint to insert, or select a corner to remove it.');
+  }
+
+  function cancelBoundaryEdit(): void {
+    settleBoundaryGesture(false);
+    if (boundaryEditMaterialId === undefined) return;
+    discardBoundaryEdit();
+    setFeedback('Boundary editing finished.');
+  }
+
+  function insertBoundaryVertex(materialId: string, afterIndex: number, point: ScenePoint): void {
+    const material = materialInScene(scene, materialId);
+    if (
+      material === undefined ||
+      afterIndex < 0 ||
+      afterIndex >= material.geometry.boundary.vertices.length
+    ) {
+      setFeedback('The selected Boundary is no longer available.');
+      return;
+    }
+    const vertices = material.geometry.boundary.vertices;
+    const insertAt = afterIndex + 1;
+    if (
+      commit(
+        updateSceneMaterialBoundaryCommand(materialId, {
+          vertices: [...vertices.slice(0, insertAt), point, ...vertices.slice(insertAt)],
+        }),
+      )
+    ) {
+      setSelectedBoundaryVertexIndex(insertAt);
+      setFeedback('Boundary point inserted. Drag it to refine the silhouette.');
+    }
+  }
+
+  function removeBoundaryVertex(materialId: string, vertexIndex: number | undefined): void {
+    const material = materialInScene(scene, materialId);
+    if (material === undefined || vertexIndex === undefined) {
+      setFeedback('Select a Boundary corner before removing it.');
+      return;
+    }
+    const vertices = material.geometry.boundary.vertices;
+    if (vertices.length <= 3) {
+      setFeedback('A solid Boundary needs at least three corners.');
+      return;
+    }
+    if (vertexIndex < 0 || vertexIndex >= vertices.length) {
+      setFeedback('The selected Boundary corner is no longer available.');
+      return;
+    }
+    if (
+      commit(
+        updateSceneMaterialBoundaryCommand(materialId, {
+          vertices: vertices.filter((_, index) => index !== vertexIndex),
+        }),
+      )
+    ) {
+      setSelectedBoundaryVertexIndex(Math.min(vertexIndex, vertices.length - 2));
+      setFeedback('Boundary point removed.');
+    }
+  }
+
+  function applyBoundaryVertexEdit(
+    materialId: string,
+    vertexIndex: number,
+    phase: 'start' | 'move' | 'end' | 'cancel',
+    point?: ScenePoint,
+  ): void {
+    if (phase === 'cancel') {
+      settleBoundaryGesture(false);
+      return;
+    }
+    if (phase === 'start') {
+      settleCanvasGesture(true);
+      settleBoundaryGesture(true);
+      const baseScene = store.getCurrentRecipe();
+      const material = materialInScene(baseScene, materialId);
+      if (
+        material === undefined ||
+        vertexIndex < 0 ||
+        vertexIndex >= material.geometry.boundary.vertices.length
+      ) {
+        setFeedback('The selected Boundary corner is no longer available.');
+        return;
+      }
+      activeBoundaryGesture.current = {
+        group: store.beginInteraction('scene-boundary-vertex'),
+        baseScene,
+        materialId,
+        vertexIndex,
+        latestCandidate: baseScene,
+        changed: false,
+      };
+      setSelectedBoundaryVertexIndex(vertexIndex);
+      return;
+    }
+
+    const active = activeBoundaryGesture.current;
+    if (
+      active === undefined ||
+      active.materialId !== materialId ||
+      active.vertexIndex !== vertexIndex
+    ) {
+      return;
+    }
+    if (phase === 'move' && point !== undefined) {
+      const material = materialInScene(active.baseScene, materialId);
+      if (material === undefined) return;
+      const vertices = material.geometry.boundary.vertices.map((vertex, index) =>
+        index === vertexIndex ? point : { ...vertex },
+      );
+      const prepared = updateSceneMaterialBoundaryCommand(materialId, { vertices }).prepare(
+        active.baseScene,
+      );
+      if (prepared.kind !== 'success') {
+        setFeedback(feedbackFrom(prepared.diagnostics));
+        return;
+      }
+      const result = store.promoteInteraction(active.group, prepared.candidate);
+      if (!result.ok) {
+        setFeedback(feedbackFrom(result.diagnostics));
+        return;
+      }
+      active.latestCandidate = prepared.candidate;
+      active.changed = true;
+      setFeedback(undefined);
+    }
+    if (phase === 'end') settleBoundaryGesture(true);
+  }
+
   function applyCanvasDrag(
     groupId: GroupId,
     phase: 'start' | 'move' | 'end' | 'cancel',
@@ -363,6 +567,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
     }
     if (phase === 'start') {
       settleCanvasGesture(true);
+      settleBoundaryGesture(true);
       const baseScene = store.getCurrentRecipe();
       const group = baseScene.rootGroups.find((entry) => entry.id === groupId);
       if (group === undefined) return;
@@ -406,6 +611,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
 
   function undo(): void {
     settleCanvasGesture(true);
+    settleBoundaryGesture(true);
     discardFreeformDraft();
     const result = store.undo();
     if (!result.ok) setFeedback(feedbackFrom(result.diagnostics));
@@ -414,6 +620,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
 
   function redo(): void {
     settleCanvasGesture(true);
+    settleBoundaryGesture(true);
     discardFreeformDraft();
     const result = store.redo();
     if (!result.ok) setFeedback(feedbackFrom(result.diagnostics));
@@ -435,6 +642,16 @@ export function useSceneEditor(initialScene?: SceneV03) {
     selectedGroupId: selectedGroup?.id,
     selectedGroup,
     selectedMaterial,
+    boundaryEditor:
+      boundaryEditMaterialId !== undefined && boundaryEditMaterialId === selectedMaterial?.id
+        ? {
+            materialId: boundaryEditMaterialId,
+            vertices: selectedMaterial.geometry.boundary.vertices,
+            ...(selectedBoundaryVertexIndex === undefined
+              ? {}
+              : { selectedVertexIndex: selectedBoundaryVertexIndex }),
+          }
+        : undefined,
     freeformDraft:
       freeformDraft === undefined
         ? undefined
@@ -447,10 +664,18 @@ export function useSceneEditor(initialScene?: SceneV03) {
               freeformDraft.hoverPoint !== undefined &&
               isNearFreeformStart(freeformDraft.points, freeformDraft.hoverPoint),
           },
-    selectGroup: setSelectedGroupId,
+    selectGroup: (groupId: GroupId) => {
+      settleCanvasGesture(false);
+      settleBoundaryGesture(false);
+      setSelectedGroupId(groupId);
+      const material = firstMaterial(scene.rootGroups.find((group) => group.id === groupId));
+      if (material?.id !== boundaryEditMaterialId) discardBoundaryEdit();
+    },
     clearSelection: () => {
       settleCanvasGesture(false);
+      settleBoundaryGesture(false);
       setSelectedGroupId(undefined);
+      discardBoundaryEdit();
     },
     addShape,
     chooseStarter,
@@ -469,9 +694,15 @@ export function useSceneEditor(initialScene?: SceneV03) {
     remixPalette,
     beginFreeform,
     cancelFreeform,
+    closeFreeform,
     undoFreeformPoint,
     hoverFreeform,
     placeFreeformPoint,
+    toggleBoundaryEdit,
+    cancelBoundaryEdit,
+    insertBoundaryVertex,
+    removeBoundaryVertex,
+    applyBoundaryVertexEdit,
     applyCanvasDrag,
     importScene,
     undo,

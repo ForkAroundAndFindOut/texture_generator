@@ -7,6 +7,7 @@ import {
   createSceneEditorStore,
   remixScenePaletteCommand,
   updateSceneMaterialCommand,
+  updateSceneMaterialBoundaryCommand,
 } from '../../../src/editor';
 import { createSceneMaterialTemplate } from '../../../src/app/session/sceneTemplates';
 
@@ -135,5 +136,42 @@ describe('v0.3 material commands', () => {
     expect(canonicalSceneV03String(store.getCurrentRecipe())).toBe(before);
     expect(store.redo().ok).toBe(true);
     expect(canonicalSceneV03String(store.getCurrentRecipe())).toBe(after);
+  });
+
+  it('accepts one valid Boundary edit but rejects a crossing replacement before history changes', () => {
+    const { store, materialId } = addGlow();
+    const before = canonicalSceneV03String(store.getCurrentRecipe());
+    const valid = {
+      vertices: [
+        { x: 0.16, y: 0.18 },
+        { x: 0.84, y: 0.24 },
+        { x: 0.71, y: 0.8 },
+        { x: 0.3, y: 0.72 },
+      ],
+    };
+    expect(
+      store.commitDesignCommand(updateSceneMaterialBoundaryCommand(materialId, valid)).ok,
+    ).toBe(true);
+    const after = canonicalSceneV03String(store.getCurrentRecipe());
+    expect(after).not.toBe(before);
+    expect(store.undo().ok).toBe(true);
+    expect(canonicalSceneV03String(store.getCurrentRecipe())).toBe(before);
+    expect(store.redo().ok).toBe(true);
+    expect(canonicalSceneV03String(store.getCurrentRecipe())).toBe(after);
+
+    const historyLength = store.getSnapshot().history.entries.length;
+    const rejected = store.commitDesignCommand(
+      updateSceneMaterialBoundaryCommand(materialId, {
+        vertices: [
+          { x: 0.15, y: 0.15 },
+          { x: 0.85, y: 0.85 },
+          { x: 0.15, y: 0.85 },
+          { x: 0.85, y: 0.15 },
+        ],
+      }),
+    );
+    expect(rejected.ok).toBe(false);
+    expect(canonicalSceneV03String(store.getCurrentRecipe())).toBe(after);
+    expect(store.getSnapshot().history.entries).toHaveLength(historyLength);
   });
 });

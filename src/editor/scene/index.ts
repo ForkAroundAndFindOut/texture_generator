@@ -14,6 +14,7 @@ export {
   updateSceneBackgroundCommand,
   updateSceneLayerTransformCommand,
   updateSceneMaterialCommand,
+  updateSceneMaterialBoundaryCommand,
   updateScenePaletteEntryCommand,
 } from './commands';
 export { SCENE_REFRAME_SAFE_PADDING } from './commands';

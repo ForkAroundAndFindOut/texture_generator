@@ -17,9 +17,11 @@ import {
   isSceneV03Id,
   normalizeSceneV03,
   sceneV03IdFromBytes,
+  validateBoundary,
   validateSceneV03,
   type ArtboardFitMode,
   type ArtboardRatio,
+  type Boundary,
   type CanonicalSceneColor,
   type GrainStyle,
   type GroupId,
@@ -885,6 +887,31 @@ function patchMaterialNode(
   return { node: { ...cloneRecipe(node), children }, found };
 }
 
+function patchMaterialBoundaryNode(
+  node: SceneNode,
+  materialId: MaterialId,
+  boundary: Boundary,
+): { readonly node: SceneNode; readonly found: boolean } {
+  if (node.kind === 'material') {
+    if (node.id !== materialId) return { node: cloneRecipe(node), found: false };
+    return {
+      node: {
+        ...cloneRecipe(node),
+        geometry: { kind: 'boundary', boundary: cloneRecipe(boundary) },
+      },
+      found: true,
+    };
+  }
+
+  let found = false;
+  const children = node.children.map((child) => {
+    const patched = patchMaterialBoundaryNode(child, materialId, boundary);
+    found ||= patched.found;
+    return patched.node;
+  });
+  return { node: { ...cloneRecipe(node), children }, found };
+}
+
 /** Changes one material's rendering field while retaining its Boundary geometry and z order. */
 export function updateSceneMaterialCommand(
   materialId: MaterialId,
@@ -912,6 +939,51 @@ export function updateSceneMaterialCommand(
       );
     }
     return finalize({ ...cloneRecipe(current), rootGroups }, 'Update material');
+  });
+}
+
+/**
+ * Updates one material's shared Boundary only when it remains a simple 3-64
+ * vertex solid. Invalid pointer edits therefore never replace valid source
+ * geometry or create a history entry.
+ */
+export function updateSceneMaterialBoundaryCommand(
+  materialId: MaterialId,
+  boundary: Boundary,
+): DesignCommand<SceneV03, SceneCommandDiagnostic> {
+  return command('scene-material-boundary', 'Edit Boundary', (current) => {
+    const validation = validateBoundary(boundary);
+    if (!validation.ok) {
+      return failure(
+        ...validation.issues.map((issue) =>
+          diagnostic(
+            issue.code,
+            '/material/geometry/boundary' + (issue.path === '/' ? '' : issue.path),
+            issue.message,
+            'Keep the Boundary as one simple closed body with 3 to 64 points.',
+          ),
+        ),
+      );
+    }
+    let found = false;
+    const rootGroups = current.rootGroups.map((group) => {
+      const patched = patchMaterialBoundaryNode(group, materialId, boundary);
+      found ||= patched.found;
+      if (patched.node.kind !== 'group') {
+        throw new TypeError('Root scene nodes must remain groups.');
+      }
+      return patched.node;
+    });
+    if (!found) {
+      return failure(
+        diagnostic(
+          'unknown-material-target',
+          '/rootGroups',
+          'The selected Boundary material no longer exists.',
+        ),
+      );
+    }
+    return finalize({ ...cloneRecipe(current), rootGroups }, 'Edit Boundary');
   });
 }
 

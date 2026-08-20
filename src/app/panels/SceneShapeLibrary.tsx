@@ -42,7 +42,7 @@ export function SceneShapeLibrary({
           <p className="scene-freeform-control__label">Freeform Boundary</p>
           <p className="scene-freeform-control__copy">
             {freeformActive
-              ? `${freeformPointCount} point${freeformPointCount === 1 ? '' : 's'} placed. Click near the first point to close one solid body.`
+              ? `${freeformPointCount} point${freeformPointCount === 1 ? '' : 's'} placed. Click near the first point, press Enter, or double-click the final point to close one solid body.`
               : 'Place straight-line points; the first point magnetically closes a simple filled body.'}
           </p>
         </div>

@@ -1,0 +1,14 @@
+# Local runtimes and dependency installs
+.tools/
+node_modules/
+
+# Build, cache, and test output
+dist/
+coverage/
+.cache/
+playwright-report/
+test-results/
+vitest-report/
+
+# TypeScript incremental metadata (also covered by .cache/)
+*.tsbuildinfo

@@ -1,0 +1,24 @@
+# Dependencies, local runtimes, and generated build output
+node_modules/
+.tools/
+dist/
+coverage/
+.cache/
+playwright-report/
+test-results/
+.agents/
+.codex_workflow_hidden_resource/
+.specify/
+agent_docs/
+specs/
+AGENTS.md
+preplan.md
+
+# Workflow/runtime state and generated evidence
+.codex/
+.specify/orchestration/runs/
+tests/evidence/
+
+# Generated source artifacts are validated by their owning generators.
+**/generated/
+**/*.generated.*

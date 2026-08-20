@@ -106,7 +106,18 @@ export function App({ initialScene, className }: AppProps) {
       onExport={() => {
         if (typeof document === 'undefined') return;
         const panel = document.getElementById('texture-lab-export-panel');
-        panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        const inspector = panel?.closest<HTMLElement>('.editor-panels');
+        if (
+          panel !== null &&
+          panel !== undefined &&
+          inspector !== null &&
+          inspector !== undefined
+        ) {
+          inspector.scrollTop =
+            panel.getBoundingClientRect().top -
+            inspector.getBoundingClientRect().top +
+            inspector.scrollTop;
+        }
         panel?.focus();
       }}
       previewStatus={`${editor.scene.rootGroups.length} layers · ${saveStatus}`}

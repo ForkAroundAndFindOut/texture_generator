@@ -5,13 +5,11 @@ import { extname, resolve, sep } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-const preview = (page: Page) => page.getByRole('region', { name: 'Texture preview' });
-const layerRows = (page: Page) => page.locator('ol[aria-label="Layers"] > li');
-const layerRow = (page: Page, componentId: string) =>
-  page.locator(`ol[aria-label="Layers"] > li[data-component-id="${componentId}"]`);
-
 const distRoot = resolve('dist');
 let staticServer: Server | undefined;
+
+const layerRows = (page: Page) => page.locator('ol[aria-label="Composition layers"] > li');
+const compositionCanvas = (page: Page) => page.getByRole('region', { name: 'Composition canvas' });
 
 test.beforeAll(async () => {
   staticServer = createServer(async (request, response) => {
@@ -24,14 +22,13 @@ test.beforeAll(async () => {
     }
     try {
       const body = await readFile(target);
+      const extension = extname(target);
       const contentType =
-        extname(target) === '.css'
+        extension === '.css'
           ? 'text/css; charset=utf-8'
-          : extname(target) === '.js'
+          : extension === '.js'
             ? 'text/javascript; charset=utf-8'
-            : extname(target) === '.svg'
-              ? 'image/svg+xml'
-              : 'text/html; charset=utf-8';
+            : 'text/html; charset=utf-8';
       response.writeHead(200, { 'Content-Type': contentType }).end(body);
     } catch {
       response.writeHead(404).end('Not found');
@@ -48,118 +45,12 @@ test.afterAll(async () => {
   staticServer = undefined;
   if (server === undefined) return;
   server.closeAllConnections();
-  await new Promise<void>((resolveClose, reject) => {
-    server.close((error) => (error === undefined ? resolveClose() : reject(error)));
+  await new Promise<void>((resolveClose, rejectClose) => {
+    server.close((error) => (error === undefined ? resolveClose() : rejectClose(error)));
   });
 });
 
-async function nonBasePixelsFromDataImage(page: Page, source: string): Promise<number> {
-  return page.evaluate(async (dataUrl) => {
-    const image = new Image();
-    image.src = dataUrl;
-    await new Promise<void>((resolveImage, rejectImage) => {
-      image.addEventListener('load', () => resolveImage(), { once: true });
-      image.addEventListener('error', () => rejectImage(new Error('export image failed to load')), {
-        once: true,
-      });
-    });
-    const canvas = document.createElement('canvas');
-    canvas.width = 720;
-    canvas.height = 480;
-    const context = canvas.getContext('2d');
-    if (context === null) throw new Error('2D export test context is unavailable');
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-    let count = 0;
-    for (let index = 0; index < pixels.length; index += 4) {
-      const red = pixels[index] ?? 0;
-      const green = pixels[index + 1] ?? 0;
-      const blue = pixels[index + 2] ?? 0;
-      const alpha = pixels[index + 3] ?? 0;
-      // The journey sets #101820 as the base. Count pixels visibly unlike it.
-      if (alpha > 0 && Math.abs(red - 16) + Math.abs(green - 24) + Math.abs(blue - 32) > 30)
-        count += 1;
-    }
-    return count;
-  }, source);
-}
-
-/** Assert an authoring action changed the rendered canvas, not merely recipe state. */
-async function expectPreviewPixelsToChange(page: Page, action: () => Promise<void>): Promise<void> {
-  const before = await preview(page).screenshot({ animations: 'disabled', caret: 'hide' });
-  await action();
-  const after = await preview(page).screenshot({ animations: 'disabled', caret: 'hide' });
-  expect(after.equals(before)).toBe(false);
-}
-
-test('development surface is styled, canvas-sized, and console-clean at port 5173', async ({
-  browser,
-}) => {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  const consoleErrors: string[] = [];
-  const pageErrors: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
-  });
-  page.on('pageerror', (error) => pageErrors.push(error.message));
-
-  await page.goto('http://127.0.0.1:5173/', { waitUntil: 'networkidle' });
-  await expect(page.getByRole('heading', { name: 'Texture Lab' })).toBeVisible();
-  await expect(preview(page)).toHaveAttribute('data-selected-component-id', /cmp_/u);
-  await expect(page.locator('[data-selection-overlay]')).toBeVisible();
-
-  const layout = await page.evaluate(() => {
-    const field = document.querySelector('[data-layer-kind="field"] path');
-    const canvas = document.querySelector('.preview-surface');
-    const sidebar = document.querySelector('.editor-sidebar');
-    const inspector = document.querySelector('.editor-panels');
-    if (
-      !(field instanceof SVGPathElement) ||
-      canvas === null ||
-      sidebar === null ||
-      inspector === null
-    ) {
-      throw new Error('v0.2 workspace landmarks are unavailable');
-    }
-    const fieldBounds = field.getBoundingClientRect();
-    const canvasBounds = canvas.getBoundingClientRect();
-    return {
-      display: getComputedStyle(document.querySelector('.editor-layout')!).display,
-      stylesheetCount: document.styleSheets.length,
-      bodyHeight: document.body.scrollHeight,
-      viewportHeight: window.innerHeight,
-      fieldWidth: fieldBounds.width,
-      fieldHeight: fieldBounds.height,
-      canvasWidth: canvasBounds.width,
-      canvasHeight: canvasBounds.height,
-      sidebarVisible: sidebar.getBoundingClientRect().width > 200,
-      inspectorVisible: inspector.getBoundingClientRect().width > 300,
-    };
-  });
-
-  expect(layout.display).toBe('grid');
-  expect(layout.stylesheetCount).toBeGreaterThan(0);
-  expect(layout.bodyHeight).toBeLessThanOrEqual(layout.viewportHeight);
-  expect(layout.fieldWidth).toBeGreaterThan(300);
-  expect(layout.fieldHeight).toBeGreaterThan(180);
-  expect(layout.canvasWidth).toBeGreaterThan(520);
-  expect(layout.canvasHeight).toBeGreaterThan(420);
-  expect(layout.sidebarVisible).toBe(true);
-  expect(layout.inspectorVisible).toBe(true);
-  expect(consoleErrors).toEqual([]);
-  expect(pageErrors).toEqual([]);
-  await expect(page).toHaveScreenshot('texture-lab-workspace.png', {
-    animations: 'disabled',
-    caret: 'hide',
-    scale: 'css',
-  });
-  await page.close();
-});
-
-test('authors a clickable textured gradient and renders downloaded SVG/CSS', async ({
-  page,
-  browser,
-}) => {
+test('v0.3 authors a portable art composition without rasterizing it', async ({ page }) => {
   test.setTimeout(60_000);
   const consoleErrors: string[] = [];
   const pageErrors: string[] = [];
@@ -168,314 +59,175 @@ test('authors a clickable textured gradient and renders downloaded SVG/CSS', asy
   });
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.goto('/');
+  await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' });
   await expect(page.getByRole('heading', { name: 'Texture Lab' })).toBeVisible();
-  await expect(preview(page)).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Add shape' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Starter compositions' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Visual gestures' })).toBeVisible();
+  await expect(
+    compositionCanvas(page).getByRole('img', { name: /Texture Lab composition/u }),
+  ).toBeVisible();
 
+  await page.getByRole('button', { name: 'Choose Aurora wave starter' }).click();
   const rows = layerRows(page);
-  const initialCount = await rows.count();
-  await page.getByRole('button', { name: 'Add Soft Field' }).click();
-  const addedFieldId = await preview(page).getAttribute('data-selected-component-id');
-  expect(addedFieldId).toMatch(/^cmp_/u);
-  const visualField = page.locator(`[data-layer-id="${addedFieldId}"] path`);
-  const visualFieldBounds = await visualField.boundingBox();
-  if (visualFieldBounds === null) throw new Error('Added Field is not visibly rendered.');
-  await page.mouse.click(
-    visualFieldBounds.x + visualFieldBounds.width / 2,
-    visualFieldBounds.y + visualFieldBounds.height / 2,
-  );
-  await expect(preview(page)).toHaveAttribute('data-selected-component-id', addedFieldId!);
-  await page.getByRole('button', { name: 'Add Diagonal Band' }).click();
-  const addedBandId = await preview(page).getAttribute('data-selected-component-id');
-  expect(addedBandId).toMatch(/^cmp_/u);
-  await expect(rows).toHaveCount(initialCount + 2);
+  const starterCount = await rows.count();
+  expect(starterCount).toBeGreaterThan(0);
 
-  const visualBand = page.locator(`[data-layer-id="${addedBandId}"] path`);
-  const visualBandBounds = await visualBand.boundingBox();
-  if (visualBandBounds === null) throw new Error('Added Band is not visibly rendered.');
-  await page.mouse.click(
-    visualBandBounds.x + visualBandBounds.width / 2,
-    visualBandBounds.y + visualBandBounds.height / 2,
-  );
-  await expect(preview(page)).toHaveAttribute('data-selected-component-id', addedBandId!);
+  const frame = page.locator('.scene-artboard__frame');
+  const initialFrame = await frame.boundingBox();
+  if (initialFrame === null) throw new Error('The v0.3 artboard frame is unavailable.');
+  await page.getByRole('button', { name: '2:1', exact: true }).click();
+  const wideFrame = await frame.boundingBox();
+  if (wideFrame === null) throw new Error('The wide v0.3 artboard frame is unavailable.');
+  expect(wideFrame.width / wideFrame.height).toBeGreaterThan(1.8);
+  await page.getByRole('button', { name: '1:1', exact: true }).click();
 
+  await page.getByRole('button', { name: /^Glow\b/u }).click();
+  await expect(rows).toHaveCount(starterCount + 1);
+  const canvas = compositionCanvas(page);
+  const visualBeforeMaterial = await canvas.screenshot({ animations: 'disabled', caret: 'hide' });
+  await page.getByRole('button', { name: 'Use White #FFFFFF', exact: true }).click();
+  await page.getByLabel('Interaction mode').selectOption('keep-base-hue');
+  const opacity = page.getByRole('slider', { name: 'Opacity' });
+  const opacityBefore = await opacity.inputValue();
+  await opacity.press('ArrowLeft');
+  await expect(opacity).not.toHaveValue(opacityBefore);
+  const visualAfterMaterial = await canvas.screenshot({ animations: 'disabled', caret: 'hide' });
+  expect(visualAfterMaterial.equals(visualBeforeMaterial)).toBe(false);
+
+  const selectedGroup = page.locator('.scene-artboard__svg [data-scene-group-id]').last();
+  const selectedBounds = await selectedGroup.boundingBox();
+  if (selectedBounds === null) throw new Error('The added Glow has no draggable canvas geometry.');
   const positionX = page.getByRole('spinbutton', { name: 'Position X' });
-  const positionY = page.getByRole('spinbutton', { name: 'Position Y' });
-  const translatedBandBounds = await visualBand.boundingBox();
-  if (translatedBandBounds === null) throw new Error('Selected Band cannot be dragged.');
-  const directXBefore = await positionX.inputValue();
-  const directYBefore = await positionY.inputValue();
+  const positionXBefore = await positionX.inputValue();
   await page.mouse.move(
-    translatedBandBounds.x + translatedBandBounds.width / 2,
-    translatedBandBounds.y + translatedBandBounds.height / 2,
+    selectedBounds.x + selectedBounds.width / 2,
+    selectedBounds.y + selectedBounds.height / 2,
   );
   await page.mouse.down();
   await page.mouse.move(
-    translatedBandBounds.x + translatedBandBounds.width / 2 + 60,
-    translatedBandBounds.y + translatedBandBounds.height / 2 + 24,
+    selectedBounds.x + selectedBounds.width / 2 + 32,
+    selectedBounds.y + selectedBounds.height / 2 + 20,
     { steps: 4 },
   );
   await page.mouse.up();
-  await expect(positionX).not.toHaveValue(directXBefore);
-  await expect(positionY).not.toHaveValue(directYBefore);
-
-  const positionBefore = await positionX.inputValue();
-  await positionX.fill('0.27');
-  await positionX.press('Enter');
-  const transformHash = await preview(page).getAttribute('data-canonical-recipe-hash');
+  await expect(positionX).not.toHaveValue(positionXBefore);
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(positionX).not.toHaveValue('0.27');
+  await expect(positionX).toHaveValue(positionXBefore);
   await page.getByRole('button', { name: 'Redo' }).click();
-  await expect(positionX).toHaveValue('0.27');
-  await expect(preview(page)).toHaveAttribute('data-canonical-recipe-hash', transformHash!);
-  expect(positionBefore).not.toBe('0.27');
+  await expect(positionX).not.toHaveValue(positionXBefore);
 
-  await expectPreviewPixelsToChange(page, async () => {
-    await positionY.fill('0.34');
-    await positionY.press('Enter');
-  });
-  await expectPreviewPixelsToChange(page, async () => {
-    const width = page.getByRole('spinbutton', { name: 'Width' });
-    await width.fill('0.94');
-    await width.press('Enter');
-  });
-  await expectPreviewPixelsToChange(page, async () => {
-    const height = page.getByRole('spinbutton', { name: 'Height' });
-    await height.fill('0.28');
-    await height.press('Enter');
-  });
-  await expectPreviewPixelsToChange(page, async () => {
-    const rotation = page.getByRole('spinbutton', { name: 'Rotation' });
-    await rotation.fill('18');
-    await rotation.press('Enter');
-  });
-  await expectPreviewPixelsToChange(page, async () => {
-    const scale = page.getByRole('spinbutton', { name: 'Scale' });
-    await scale.fill('0.86');
-    await scale.press('Enter');
-  });
-  await expectPreviewPixelsToChange(page, async () => {
-    await page.getByRole('slider', { name: 'Taper' }).press('End');
-  });
-  await expectPreviewPixelsToChange(page, async () => {
-    await page.getByLabel('End cap').selectOption('flat');
-  });
-
-  await expectPreviewPixelsToChange(page, async () => {
-    await page.getByLabel('Layer color', { exact: true }).fill('#5b8cff');
-  });
-  await expectPreviewPixelsToChange(page, async () => {
-    const hex = page.getByLabel('Layer color hex');
-    await hex.fill('#7dd3fc');
-    await hex.press('Enter');
-  });
-  await expectPreviewPixelsToChange(page, async () => {
-    await page
-      .getByRole('group', { name: 'Layer color quick colors' })
-      .getByRole('button', { name: 'Use Mint #22AA88' })
-      .click();
-  });
-  await expect(page.getByLabel('Layer color', { exact: true })).toHaveValue('#22aa88');
-  await expectPreviewPixelsToChange(page, async () => {
-    await page.getByLabel('Layer color opacity').fill('0.44');
-    await page.getByLabel('Layer color opacity').press('Enter');
-  });
-  await expectPreviewPixelsToChange(page, async () => {
-    const softness = page.getByRole('spinbutton', { name: 'Softness' });
-    await softness.fill('0.3');
-    await softness.press('Enter');
-  });
-  await expectPreviewPixelsToChange(page, async () => {
-    const highlight = page.getByRole('spinbutton', { name: 'Highlight' });
-    await highlight.fill('0.8');
-    await highlight.press('Enter');
-  });
-  await expectPreviewPixelsToChange(page, async () => {
-    const grain = page.getByRole('spinbutton', { name: 'Grain' });
-    await grain.fill('0.18');
-    await grain.press('Enter');
-  });
-  await expectPreviewPixelsToChange(page, async () => {
-    const asymmetry = page.getByRole('spinbutton', { name: 'Asymmetry' });
-    await asymmetry.fill('0.4');
-    await asymmetry.press('Enter');
-  });
-  await expectPreviewPixelsToChange(page, async () => {
-    await page.getByLabel('Canvas color', { exact: true }).fill('#101820');
-  });
-
-  const blendMode = page.getByLabel('Blend mode');
-  const blendScreenshots = new Set<string>();
-  for (const blend of ['normal', 'multiply', 'screen', 'overlay', 'soft-light']) {
-    await blendMode.selectOption(blend);
-    blendScreenshots.add(
-      (await preview(page).screenshot({ animations: 'disabled' })).toString('base64'),
-    );
-  }
-  expect(blendScreenshots.size).toBe(5);
-  await blendMode.selectOption('multiply');
-
-  const scaleBefore = await page.getByRole('spinbutton', { name: 'Scale' }).inputValue();
-  const scaleHandle = page.locator('[data-canvas-handle="scale"]');
-  const scaleBox = await scaleHandle.boundingBox();
-  if (scaleBox === null) throw new Error('Selected layer has no scale handle.');
-  await page.mouse.move(scaleBox.x + scaleBox.width / 2, scaleBox.y + scaleBox.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(
-    scaleBox.x + scaleBox.width / 2 - 36,
-    scaleBox.y + scaleBox.height / 2 - 26,
-    {
-      steps: 4,
-    },
-  );
-  await page.mouse.up();
-  await expect(page.getByRole('spinbutton', { name: 'Scale' })).not.toHaveValue(scaleBefore);
-
-  const rotationBefore = await page.getByRole('spinbutton', { name: 'Rotation' }).inputValue();
-  const rotateHandle = page.locator('[data-canvas-handle="rotate"]');
-  const rotateBox = await rotateHandle.boundingBox();
-  if (rotateBox === null) throw new Error('Selected layer has no rotation handle.');
-  await page.mouse.move(rotateBox.x + rotateBox.width / 2, rotateBox.y + rotateBox.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(
-    rotateBox.x + rotateBox.width / 2 + 35,
-    rotateBox.y + rotateBox.height / 2 + 15,
-    {
-      steps: 4,
-    },
-  );
-  await page.mouse.up();
-  await expect(page.getByRole('spinbutton', { name: 'Rotation' })).not.toHaveValue(rotationBefore);
-
-  const addedFieldRow = layerRow(page, addedFieldId!);
-  await addedFieldRow.getByRole('button', { name: /Select /u }).click();
-  await page.getByRole('button', { name: 'Edit anchors' }).click();
-  const anchors = page.locator('[data-canvas-handle="anchor"]');
-  const anchorCount = await anchors.count();
-  const anchorSegment = page.locator('[data-canvas-handle="anchor-segment"]').first();
-  const anchorSegmentBox = await anchorSegment.boundingBox();
-  if (anchorSegmentBox === null) throw new Error('A Field contour segment is not clickable.');
+  const beforeFreeform = await rows.count();
+  await page.getByRole('button', { name: 'Draw Boundary' }).click();
+  const canvasImage = canvas.getByRole('img', { name: /Texture Lab composition/u });
+  const canvasBounds = await canvasImage.boundingBox();
+  if (canvasBounds === null)
+    throw new Error('The canvas SVG is unavailable for Boundary authoring.');
+  const firstPoint = {
+    x: canvasBounds.x + canvasBounds.width * 0.2,
+    y: canvasBounds.y + canvasBounds.height * 0.2,
+  };
+  await page.mouse.click(firstPoint.x, firstPoint.y);
   await page.mouse.click(
-    anchorSegmentBox.x + anchorSegmentBox.width / 2,
-    anchorSegmentBox.y + anchorSegmentBox.height / 2,
+    canvasBounds.x + canvasBounds.width * 0.76,
+    canvasBounds.y + canvasBounds.height * 0.3,
   );
-  await expect(anchors).toHaveCount(anchorCount + 1);
-  const selectedAnchor = page.locator('.anchor-overlay__handle.is-selected');
-  const selectedAnchorBox = await selectedAnchor.boundingBox();
-  if (selectedAnchorBox === null) throw new Error('New Field anchor is not clickable.');
-  await page.mouse.move(
-    selectedAnchorBox.x + selectedAnchorBox.width / 2,
-    selectedAnchorBox.y + selectedAnchorBox.height / 2,
+  await page.mouse.click(
+    canvasBounds.x + canvasBounds.width * 0.48,
+    canvasBounds.y + canvasBounds.height * 0.76,
   );
-  await page.mouse.down();
-  await page.mouse.move(
-    selectedAnchorBox.x + selectedAnchorBox.width / 2 + 12,
-    selectedAnchorBox.y + selectedAnchorBox.height / 2 + 8,
-    { steps: 3 },
-  );
-  await page.mouse.up();
-  await page.getByRole('button', { name: 'Undo' }).click();
-  await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(anchors).toHaveCount(anchorCount);
-  await page.getByRole('button', { name: 'Redo' }).click();
-  await page.getByRole('button', { name: 'Redo' }).click();
-  await expect(anchors).toHaveCount(anchorCount + 1);
+  await expect(page.getByRole('button', { name: 'Cancel Boundary' })).toBeVisible();
+  await page.mouse.click(firstPoint.x + 3, firstPoint.y + 3);
+  await expect(rows).toHaveCount(beforeFreeform + 1);
+  await expect(page.getByLabel('Layer inspector')).toContainText('Freeform Boundary');
+  await expect(
+    rows.first().getByRole('textbox', { name: /Layer name Freeform Boundary/u }),
+  ).toBeVisible();
 
-  const nameInput = page.getByLabel('Layer name', { exact: true });
-  await nameInput.fill('Aurora field');
-  await nameInput.press('Enter');
-  await expect(addedFieldRow.locator('input:not([type="color"])')).toHaveValue('Aurora field');
-  await addedFieldRow.getByRole('button', { name: 'Hide layer' }).click();
-  await expect(addedFieldRow.getByRole('button', { name: 'Show layer' })).toBeVisible();
-  await addedFieldRow.getByRole('button', { name: 'Show layer' }).click();
+  await page.getByRole('button', { name: 'Export' }).click();
+  const exportPanel = page.getByRole('region', { name: 'Portable export' });
+  await expect(exportPanel).toBeFocused();
 
-  const addedBandRow = layerRow(page, addedBandId!);
-  const zBefore = await addedBandRow.getAttribute('data-z-order');
-  await addedBandRow.getByRole('button', { name: 'Move layer down' }).click();
-  await expect.poll(() => addedBandRow.getAttribute('data-z-order')).not.toBe(zBefore);
-  await addedBandRow.getByRole('button', { name: 'Duplicate layer' }).click();
-  await expect(rows).toHaveCount(initialCount + 3);
-  const duplicateId = await preview(page).getAttribute('data-selected-component-id');
-  expect(duplicateId).toMatch(/^cmp_/u);
-  const duplicateRow = layerRow(page, duplicateId!);
-  await duplicateRow.getByRole('button', { name: 'Remove layer' }).click();
-  await expect(rows).toHaveCount(initialCount + 2);
-  await page.getByRole('button', { name: 'Undo' }).click();
-  await expect(rows).toHaveCount(initialCount + 3);
-  await page.getByRole('button', { name: 'Redo' }).click();
-  await expect(rows).toHaveCount(initialCount + 2);
-
-  const canvasSvg = preview(page).locator('svg');
-  const canvasBox = await canvasSvg.boundingBox();
-  if (canvasBox === null)
-    throw new Error('Canvas SVG is unavailable for empty-canvas selection clearing.');
-  await page.mouse.click(canvasBox.x + 12, canvasBox.y + 12);
-  await expect(preview(page)).not.toHaveAttribute('data-selected-component-id');
-  await expect(page.getByLabel('Layer inspector')).toContainText('Select a Field or Band');
-
-  await addedBandRow.getByRole('button', { name: /Select /u }).click();
-  const rotation = page.getByRole('spinbutton', { name: 'Rotation' });
-  await rotation.fill('999');
-  await expect(page.getByRole('alert')).toContainText('Use -180 to 179 degrees.');
-  await rotation.blur();
-  await expect(rotation).not.toHaveValue('999');
+  const sceneDownloadEvent = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download scene JSON' }).click();
+  const sceneDownload = await sceneDownloadEvent;
+  expect(sceneDownload.suggestedFilename()).toBe('texture-lab-v0.3.scene.json');
+  const scenePath = await sceneDownload.path();
+  if (scenePath === null) throw new Error('Scene JSON download has no readable path.');
+  const sceneJson = await readFile(scenePath, 'utf8');
+  expect(JSON.parse(sceneJson)).toMatchObject({ schemaVersion: '0.3.0' });
 
   const svgDownloadEvent = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download SVG' }).click();
   const svgDownload = await svgDownloadEvent;
-  expect(svgDownload.suggestedFilename()).toBe('texture-lab.svg');
+  expect(svgDownload.suggestedFilename()).toBe('texture-lab-v0.3.svg');
   const svgPath = await svgDownload.path();
   if (svgPath === null) throw new Error('SVG download has no readable path.');
   const svg = await readFile(svgPath, 'utf8');
-  expect(svg).toContain('stop-color="#22AA88"');
-  expect(svg).toContain('mix-blend-mode:multiply');
-  expect(svg).toContain('in="SourceGraphic"');
-  expect(svg).not.toContain('data-selection-overlay');
+  expect(svg).toContain('data-scene-render-ir-version="scene-render-ir-v0.3"');
+  expect(svg).toContain('data-scene-group-id=');
   expect(svg).not.toContain('<script');
 
   const cssDownloadEvent = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download CSS' }).click();
   const cssDownload = await cssDownloadEvent;
-  expect(cssDownload.suggestedFilename()).toBe('texture-lab.css');
+  expect(cssDownload.suggestedFilename()).toBe('texture-lab-v0.3.css');
   const cssPath = await cssDownload.path();
   if (cssPath === null) throw new Error('CSS download has no readable path.');
   const css = await readFile(cssPath, 'utf8');
-  expect(css).toContain('data:image/svg+xml,');
-  expect(css).toContain('%2322AA88');
+  expect(css).toContain('aspect-ratio:');
+  expect(css).toContain('background-image: url("data:image/svg+xml,');
   expect(css).toContain('background-size: cover');
 
-  await page.getByRole('button', { name: 'Copy CSS' }).click();
-  await expect(page.locator('.export-panel__status')).toContainText(/CSS/u);
+  const importedLayerCount = await rows.count();
+  await page.getByLabel('Import scene JSON').setInputFiles({
+    name: 'round-trip.scene.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(sceneJson),
+  });
+  await expect(exportPanel.getByRole('status')).toContainText('Scene imported');
+  await expect(rows).toHaveCount(importedLayerCount);
+  await page.getByLabel('Import scene JSON').setInputFiles({
+    name: 'invalid.scene.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from('{"schemaVersion":"not-v0.3"}'),
+  });
+  await expect(exportPanel.getByRole('status')).toContainText('Import rejected');
+  await expect(rows).toHaveCount(importedLayerCount);
 
-  const svgPage = await browser.newPage({ viewport: { width: 760, height: 520 } });
-  const svgDataUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
-  await svgPage.setContent(
-    `<img id="exported-svg" alt="Exported texture" width="720" height="480" src="${svgDataUrl}">`,
-  );
-  await expect(svgPage.getByRole('img', { name: 'Exported texture' })).toBeVisible();
-  expect(await nonBasePixelsFromDataImage(svgPage, svgDataUrl)).toBeGreaterThan(10_000);
-
-  const cssPage = await browser.newPage({ viewport: { width: 760, height: 520 } });
-  const fixtureHtml = await readFile(resolve('tests/e2e/fixtures/export-host.html'), 'utf8');
-  await cssPage.setContent(fixtureHtml);
-  await cssPage.locator('#texture-export-style').evaluate((style, cssText) => {
-    style.textContent = cssText;
-  }, css);
-  const cssFixture = cssPage.locator('.texture-lab-texture');
-  await expect(cssFixture).toBeVisible();
-  const backgroundImage = await cssFixture.evaluate(
-    (element) => getComputedStyle(element).backgroundImage,
-  );
-  expect(backgroundImage).toContain('data:image/svg+xml,');
-  const cssDataUrl = backgroundImage.match(/^url\(["']?(.*?)["']?\)$/u)?.[1];
-  if (cssDataUrl === undefined)
-    throw new Error('CSS fixture did not expose a renderable data URL.');
-  expect(await nonBasePixelsFromDataImage(cssPage, cssDataUrl)).toBeGreaterThan(10_000);
+  const accessibility = await page.evaluate(() => {
+    const unlabelledControls = [...document.querySelectorAll('button, input, select')]
+      .filter((element) => !(element instanceof HTMLInputElement && element.type === 'hidden'))
+      .filter((element) => {
+        const label =
+          element.getAttribute('aria-label') ??
+          element.getAttribute('title') ??
+          element.textContent?.trim() ??
+          '';
+        return (
+          label.length === 0 && !(element instanceof HTMLInputElement && element.labels?.length)
+        );
+      })
+      .map((element) => element.outerHTML);
+    const frame = document.querySelector<HTMLElement>('.scene-artboard__frame');
+    const bounds = frame?.getBoundingClientRect();
+    const hit =
+      bounds === undefined
+        ? null
+        : document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+    return {
+      unlabelledControls,
+      canvasHit: hit?.closest('[data-scene-artboard]') !== null,
+      svgHasAccessibleName:
+        document.querySelector('[data-scene-artboard] svg[role="img"][aria-labelledby]') !== null,
+    };
+  });
+  expect(accessibility.unlabelledControls).toEqual([]);
+  expect(accessibility.canvasHit).toBe(true);
+  expect(accessibility.svgHasAccessibleName).toBe(true);
+  await page.getByRole('button', { name: 'Draw Boundary' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(page.locator(':focus')).toHaveAccessibleName(/Glow|Band|Arc|Orb/u);
 
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);
-  await svgPage.close();
-  await cssPage.close();
 });

@@ -13,12 +13,6 @@ export default defineConfig({
   outputDir: './test-results/playwright',
   preserveOutput: 'failures-only',
   reporter: [['list']],
-  webServer: {
-    command: 'npm run dev -- --host 127.0.0.1 --port 5173',
-    url: 'http://127.0.0.1:5173/',
-    reuseExistingServer: true,
-    timeout: 30_000,
-  },
   use: {
     baseURL: BASE_URL,
     browserName: 'chromium',

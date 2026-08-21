@@ -1,37 +1,66 @@
-# Texture Lab v0.1-lite
+# Texture Lab
 
-A standalone local texture generator for composing prebuilt Field and Band layers, editing their
-transform/color/opacity/blend values, previewing the result live, and downloading matching SVG and
-self-contained CSS files.
+Texture Lab v0.3 is a browser-based composition canvas for making soft, multi-colored vector
+textures. It stores editable colors, straight-sided Boundaries, material effects, transforms, and
+layer order, then renders the same scene responsively as DOM/SVG, standalone SVG, or CSS.
+
+## What is included
+
+- Seven scene starting points with palette remixing.
+- Material-first gestures: Glow, Band, Arc, and Orb.
+- Common 2D shapes and flat 3D-style silhouettes.
+- Point-to-point freeform Boundary drawing with magnetic, Enter, and double-click closure.
+- Frontmost layer creation, layer rail selection, Alt/Option-click cycling, and undoable edits.
+- Fill color, pinned White quick color, opacity, edge fade, bloom, grain, and six Interaction modes.
+- Ratio-aware artboards: `1:1`, `2:1`, `1:2`, `4:3`, `16:9`, and `21:9`, with Fit/Cover framing.
+- Portable Scene JSON, SVG, and responsive CSS exports. No raster export is used.
+
+Read [USAGE_GUIDE.md](./USAGE_GUIDE.md) for the user-facing workflow and examples. The
+authoritative product contract is [IMPLEMENTATION_SPEC_V0.3.md](./IMPLEMENTATION_SPEC_V0.3.md).
 
 ## Requirements
 
-- Node.js 24
-- npm 11
-- Chromium installed through Playwright (`npm run playwright:install` when needed)
+- Node.js `24.19.0` (the version in `.nvmrc`).
+- npm `11.17.0` (declared by `packageManager` in `package.json`).
+- Chromium installed through Playwright for end-to-end checks.
 
-## Run Locally
+No account, API key, database, or runtime environment variables are required.
 
-```powershell
+## Quick start
+
+```bash
+git clone git@github.com:ForkAroundAndFindOut/texture_generator.git
+cd texture_generator
+
+# With nvm/fnm/Volta installed, this uses .nvmrc automatically or explicitly:
+nvm install 24.19.0
+nvm use 24.19.0
+
 npm ci
+npm run playwright:install
 npm run dev
 ```
 
-Open the local URL printed by Vite. The app does not require an account, remote API, or network
-service after its dependencies are installed.
+Open the local URL printed by Vite. On Windows, nvm-windows, fnm, Volta, or the official Node.js
+installer can provide the pinned Node version.
 
-## Verify
+## Verification
 
-```powershell
-npm run lint
+```bash
 npm run format:check
+npm run lint
 npm run check
 ```
 
-`npm run check` runs strict TypeScript, 35 focused unit tests, the production build, and one
-Chromium end-to-end authoring/export journey.
+`npm run check` runs both TypeScript projects, the unit suite, a production build, and the complete
+Chromium authoring/export journey. GitHub Actions runs the same checks on every push and pull
+request.
 
-## Scope
+## Development workflow
 
-See [IMPLEMENTATION_SPEC.md](./IMPLEMENTATION_SPEC.md) for the five completed milestones and the
-explicit v0.1-lite exclusions.
+Use a feature branch from the current release line, make small commits, and keep generated files
+out of Git. See [CONTRIBUTING.md](./CONTRIBUTING.md) for the branch, test, and release workflow.
+
+The v0.3 release is represented by the `v0.3.0` tag. Future releases should keep the same project
+root, create a new branch, update the package version, and add a new Git tag; old versions remain
+available through Git history rather than duplicate folders.

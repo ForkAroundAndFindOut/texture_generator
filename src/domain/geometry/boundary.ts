@@ -2,6 +2,9 @@ import type { Boundary, ScenePoint } from '../scene/types';
 
 const EPSILON = 1e-9;
 const MAX_BOUNDARY_VERTICES = 64;
+/** Local Boundary overscan keeps point editing unconstrained by the artboard edge. */
+export const BOUNDARY_COORDINATE_MIN = -2;
+export const BOUNDARY_COORDINATE_MAX = 3;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -160,11 +163,16 @@ export function validateBoundary(value: unknown): BoundaryValidationResult {
       });
       return;
     }
-    if (x < 0 || x > 1 || y < 0 || y > 1) {
+    if (
+      x < BOUNDARY_COORDINATE_MIN ||
+      x > BOUNDARY_COORDINATE_MAX ||
+      y < BOUNDARY_COORDINATE_MIN ||
+      y > BOUNDARY_COORDINATE_MAX
+    ) {
       issues.push({
         code: 'boundary-coordinate-out-of-range',
         path,
-        message: 'Boundary coordinates must stay between 0 and 1.',
+        message: 'Boundary coordinates must stay between -2 and 3.',
       });
       return;
     }

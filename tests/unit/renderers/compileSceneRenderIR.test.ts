@@ -16,7 +16,7 @@ function sceneFixture(): SceneV03 {
       visible: true,
       transform: {
         translation: { x: 0.5, y: 0.5 },
-        uniformScale: 1,
+        scale: { x: 1, y: 1 },
         rotationDeg: 0,
       },
       children: [
@@ -50,7 +50,7 @@ function sceneFixture(): SceneV03 {
       visible: true,
       transform: {
         translation: { x: 0.6, y: 0.4 },
-        uniformScale: 0.5,
+        scale: { x: 0.5, y: 0.5 },
         rotationDeg: 0,
       },
       children: [
@@ -61,7 +61,7 @@ function sceneFixture(): SceneV03 {
           visible: true,
           transform: {
             translation: { x: 0.5, y: 0.5 },
-            uniformScale: 1,
+            scale: { x: 1, y: 1 },
             rotationDeg: 0,
           },
           children: [
@@ -163,7 +163,7 @@ describe('v0.3 scene RenderIR compiler', () => {
     if (nested?.kind !== 'group') throw new Error('Fixture requires a nested group.');
     nested.transform = {
       translation: { x: 0.6, y: 0.5 },
-      uniformScale: 0.5,
+      scale: { x: 0.5, y: 0.75 },
       rotationDeg: 0,
     };
     const ir = compileSceneRenderIR(scene);
@@ -172,7 +172,7 @@ describe('v0.3 scene RenderIR compiler', () => {
 
     expect(center).toEqual({ x: 585, y: 360 });
     expect(transformed.path.matrix.a).toBe(225);
-    expect(transformed.path.matrix.d).toBe(225);
+    expect(transformed.path.matrix.d).toBe(337.5);
     expect(ir.materials[1]!.id).toBe(stableId('mat', 2));
   });
 });

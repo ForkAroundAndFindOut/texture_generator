@@ -859,3 +859,414 @@ There are no remaining product questions blocking implementation planning.
 The next authorized action, if requested, is to implement this plan incrementally from T1 onward.
 The v0.2 specification and implementation remain preserved as the stable baseline until that work is
 explicitly authorized.
+
+## 19. Approved v0.3 Interaction and Performance Refinement Addendum — 2026-08-21
+
+**Status:** Product decisions approved; this is a no-code refinement plan.
+**Relationship to the baseline:** This addendum preserves the v0.3 composition, material, export,
+and simple-Boundary contracts above. It supersedes only prior text that conflicts with the
+transform, selected-layer, Boundary-editing, or interaction-performance behavior defined here.
+**Implementation boundary:** Writing this addendum does not authorize implementation. It defines
+the smallest coherent next increment when implementation is expressly requested.
+
+### 19.1 Refined product outcome
+
+The artboard must feel like an art canvas rather than a collection of exposed polygon controls. A
+designer can select an obscured layer from the layer rail, see an editor-only indication of its true
+placement, move or resize it without changing visual z-order, and return to a full-fidelity vector
+composition after the gesture settles.
+
+The refinement has four equally important outcomes:
+
+1. **Fast transforms:** Scale X and Scale Y are easy to manipulate independently or proportionally;
+   rotation is easy to sweep through a full turn while remaining precise.
+2. **Calm point editing:** Ordinary selection has no anchor clutter. Point editing is explicit,
+   retains the exact Boundary, and exposes only the controls required for the next edit.
+3. **Intentional obscured-layer editing:** Selecting a layer in the rail makes it directly editable
+   even beneath visible layers, but never changes the composition's real stacking order.
+4. **Responsive interaction:** Continuous input receives an immediate close visual preview without
+   recompiling every full-quality material on every pointer event. The canonical vector Scene,
+   exported SVG, and CSS remain full fidelity.
+
+### 19.2 Approved decisions
+
+| Area                | Approved behavior                                                                                                                                                                                                                                         |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scale               | Each root-group transform has independent X and Y scale. The transform UI expresses `100%` as the group's unscaled local bounds. Scale lock is on by default.                                                                                             |
+| Resize handles      | With ratio lock on, corner handles scale proportionally and side handles are unavailable. With it off, corners change both axes and side handles change one axis. Normal resize keeps the opposite edge/corner fixed.                                     |
+| Center resize       | During a transform-handle drag, `Ctrl` on Windows and `Option` on macOS scale about the group center. `Shift` temporarily toggles the ratio lock. A visible accessible control provides the same center-resize behavior without requiring a modifier.     |
+| Rotation            | The UI has a `0–360°` slider and numeric field, both in `0.5°` increments. Canonical Scene data normalizes equivalent values into `[-180°, 180°)` to keep serialization deterministic.                                                                    |
+| Sidebar selection   | Selecting a layer rail row pins that group as the editor target. A non-exported overlay makes it draggable even when it is visually beneath other layers. It does not reorder, brighten, hide, or otherwise alter artwork.                                |
+| Boundary modes      | `Object` mode is the default and shows a selection cage, not points. `Edit points` reveals vertices; an insertion affordance appears only for a hovered or selected segment. Leaving edit mode hides points without deleting or simplifying the Boundary. |
+| Off-artboard points | Boundary vertices may use bounded local overscan. The rendered art remains clipped to the artboard; a separate editor overlay keeps selected handles reachable outside it. Topology, not the visible canvas edge, is the reason an edit is rejected.      |
+| Interaction quality | Active-drag preview is vector and z-order-correct. It retains shape, fill, opacity, clipping, and Interaction/blend behavior; transient grain, bloom, and costly blur refinement may be deferred for the active layer only.                               |
+
+### 19.3 Hard boundaries and non-goals
+
+- No raster snapshot, canvas bitmap, WebGL, or shader becomes the authoritative preview or export.
+- No new curve model, freehand trace, Boolean operation, multi-body Boundary, or self-intersection is
+  introduced.
+- `Solidify` is not a destructive geometry command. The user-facing solution is to leave `Edit
+points`; an optional future `Simplify Boundary` command would be explicit and lossy, and is out of
+  scope here.
+- Layer rail selection never issues Bring to front, reorder, visibility, fill, opacity, or blend
+  commands.
+- Scene JSON uses an exact version boundary. Unsupported versions are rejected with clear recovery
+  guidance; Git remains the rollback path for the prior 0.3.0 format.
+- A global low-resolution preview is not the first performance tactic. Fidelity loss is narrowly
+  scoped to expensive active-layer polish during an active interaction.
+
+### 19.4 Transform data, compatibility, and export contract
+
+#### 19.4.1 Versioned transform representation
+
+The existing `uniformScale` field cannot remain the canonical transform once independent scaling is
+available. The refinement uses a patch-level Scene JSON version, `0.3.1`, with this canonical form:
+
+```ts
+transform: {
+  translation: { x: number; y: number },
+  scale: { x: number; y: number },
+  rotationDeg: number // canonical range: [-180, 180)
+}
+```
+
+- Each scale axis is finite and within `0.05..4`; `1` is `100%`.
+- Translation retains the existing bounded normalized overscan range.
+- The ratio-lock preference, selected handle, center-resize modifier state, and displayed `0..360°`
+  rotation are editor UI state. They are not Scene JSON fields.
+- This is intentionally a breaking Scene JSON change: only `0.3.1` documents with `scale.x` and
+  `scale.y` are accepted. A `0.3.0` `uniformScale` document is retained by the prior Git revision,
+  not silently transformed by this build.
+- V0.2 remains a separately versioned format and is not implicitly imported.
+
+This is a data compatibility change, not an image export change. SVG matrices and responsive CSS
+already represent non-uniform affine scale. DOM preview, standalone SVG, CSS embed, Scene JSON,
+Undo/Redo, autosave, and starter fixtures must all consume the same transform form.
+
+#### 19.4.2 Transform interaction contract
+
+- The transform cage uses the group’s logical geometry bounds, not bloom or grain extents.
+- Rotation occurs about the group's logical center. It preserves the center unless a later explicit
+  pivot feature is approved.
+- Standard resize changes scale and translation together so the opposing edge/corner remains fixed
+  in artboard coordinates, including after rotation.
+- Center resize uses the logical center as the fixed pivot; it never moves geometry to compensate.
+- Numeric X/Y percent and rotation inputs remain visible in More. Slider and number entry have one
+  committed value source and show validation feedback rather than silently reverting.
+- A `360°` entry visibly reads as `0°` after commit, because the values are equivalent. The control
+  never claims that they are separate rotations.
+
+### 19.5 Selection, layer order, and transform overlay contract
+
+The selected object is an editor concern, not a render-order concern.
+
+1. The layer rail still lists groups front-to-back. Selecting a row selects that actual group even if
+   its rendered pixels are fully obscured.
+2. A rail selection enters a pinned editor-focus state. The artboard renders a non-exported focus
+   outline and transform cage after the artwork, so it is readable above all layers.
+3. The selected group’s transparent logical hit area and its handles receive pointer priority while
+   pinned. A drag therefore moves the selected group as though it were frontmost, while all real
+   artwork stays in its original order.
+4. `Escape`, clicking empty stage space, or choosing another rail row clears/replaces the pin.
+   Normal visible-layer picking and the existing Alt/Option overlap cycle remain available outside a
+   pinned hit area.
+5. For a single-material group, the overlay may trace the Boundary. For compound gestures such as an
+   Orb, it uses one logical transform cage around the group rather than attempting to expose every
+   child material as a separate selectable object.
+
+The overlay must never be emitted by Scene JSON, SVG download, or CSS export. It must be clearly
+distinguishable from artwork through a focused outline/handle style rather than by modifying the
+selected material’s appearance.
+
+### 19.6 Boundary editing and overscan contract
+
+#### 19.6.1 Object versus Edit points
+
+- `Object` mode is the normal state after a Boundary is created or selected. It preserves all
+  vertices exactly but shows only the group selection cage.
+- `Edit points` is an explicit reversible mode. It shows draggable vertices, an active vertex state,
+  and one candidate insertion affordance for the hovered or selected segment.
+- Every segment must not render a permanent `+` control. This removes the current two-control-per-
+  vertex density and shortens keyboard traversal.
+- Removing a selected vertex remains available only when at least three vertices remain. Insertion
+  and removal always re-run simple-polygon validity checks.
+- Exiting point mode is the requested non-destructive "solidification" experience: the shape is no
+  longer visually dependent on anchors, but can be reopened for exact editing at any time.
+
+#### 19.6.2 Bounded off-artboard editing
+
+Boundary local coordinates change from a strict `0..1` range to a finite edit-space range of
+`-2..3` on each axis. This matches existing transform overscan and allows an anchor to move well
+beyond any artboard edge without inventing infinite coordinate space.
+
+- The simple-polygon rules remain unchanged: 3–64 vertices, finite values, no repeated vertices,
+  nonzero area, and no non-adjacent crossing or touching segments.
+- Affine transform scaling/rotation of a valid non-degenerate simple polygon remains valid; point
+  editing therefore validates local topology, not incidental visible crop.
+- The visible artboard continues to clip artwork for Fit/Cover/export. The editor adds a padded,
+  non-exported overscan stage outside the clip for selected outlines, vertices, and handles.
+- Pointer conversion in `Edit points` uses unclamped stage coordinates before transforming through
+  the inverse group matrix. Ordinary artboard crop behavior does not leak into the exported design.
+- Invalid candidate edits show the draft state as invalid and leave the latest valid canonical
+  Boundary untouched.
+
+### 19.7 Interaction-performance architecture
+
+#### 19.7.1 Measured problem statement
+
+The current direct-drag path promotes a full scene candidate for every pointer event. The artboard
+then recompiles its full render IR and the DOM renderer serializes/replaces the complete SVG,
+including potentially expensive Gaussian blur and turbulence filters. This is a plausible source of
+the observed lag, but the implementation must record a benchmark before declaring a measured cause.
+
+#### 19.7.2 Required two-tier preview
+
+The system must never simply wait 200 ms before showing a drag. Instead, it has two preview tiers:
+
+```text
+pointer samples
+  -> keep latest draft in ephemeral interaction state
+  -> requestAnimationFrame coalesces to one immediate vector preview per paint
+  -> 150 ms quiet period triggers one full-quality refinement
+  -> pointer move cancels a pending refinement and resumes interaction quality
+  -> pointer release fully validates, commits one Scene/Undo/autosave transaction, then restores full quality
+```
+
+- The draft is not authoritative Scene JSON and is not autosaved or exported.
+- Inspector values reflect the current valid draft so direct manipulation and precision controls do
+  not appear stale.
+- A transform drag updates its selected group’s matrix or isolated render fragment; it does not
+  require full Scene serialization per pointer sample.
+- A Boundary drag updates the selected draft path and performs an incremental local validity test;
+  full command validation remains mandatory before the final commit.
+- An interaction begins one history transaction and produces at most one committed Scene revision on
+  release. Cancel restores the last canonical scene.
+
+#### 19.7.3 Z-order-correct static caching
+
+A single flattened background cache is forbidden because it would make a selected lower layer appear
+above layers that should cover it. The editor preview instead maintains three ordered regions in the
+same SVG compositing context:
+
+```text
+full-quality cached groups below selected group
+  -> interaction-quality selected group
+  -> full-quality cached groups above selected group
+  -> non-exported selection/point overlay
+```
+
+The active group remains in its true draw-order slot. The overlay alone appears above all artwork.
+Fragment caching is keyed by stable compiled group/material content and render quality. Shared
+filter definitions may be deduplicated when their normalized parameters match, but filter IDs and
+blend semantics must remain collision-safe.
+
+#### 19.7.4 Interaction-quality rules
+
+- Preserve active-layer boundary/path, fill, opacity, clipping, affine transform, and Interaction
+  blend mapping on every draft paint.
+- Retain all non-active layers in their last full-quality state and true z-order.
+- Grain/Paper/Film and bloom are deferred for the active layer during continuous input. Edge feather
+  remains visible; if profiling requires a fallback, use a bounded lower-cost feather refinement
+  rather than changing the underlying Boundary.
+- After 150 ms idle or pointer release, restore the identical full-quality SVG/CSS material result.
+- Do not use a low-resolution bitmap, alter palette data, change fit/crop, or substitute another
+  blend mode as an interaction shortcut.
+
+### 19.8 Refinement dependency map
+
+```text
+R0 benchmark and interaction diagnostics
+  -> R1 transform schema 0.3.1 boundary
+      -> R2 scale-aware compiler/export parity
+          -> R3 selection focus and transform cage
+              -> R4 Object/Edit-points and overscan
+              -> R5 segmented persistent DOM preview
+                  -> R6 rAF draft scheduler and quality refinement
+                      -> R7 end-to-end, export, accessibility, performance, and guide verification
+```
+
+R3 and R4 must produce correct full-quality behavior before R5/R6 optimize it. Performance work
+must not be used to conceal an incorrect transform, selection, Boundary, or export contract.
+
+### 19.9 Ordered implementation tasks
+
+#### Task R0: Establish an interaction performance baseline
+
+**Description:** Create deterministic 12-layer and 24-layer fixtures and lightweight local
+instrumentation for pointer-to-draft paint, full-quality settle time, full-scene serialization count,
+and queued interaction updates.
+
+**Acceptance criteria:**
+
+- [ ] The fixtures represent ordinary combinations of Glow, Band, Orb, Boundary, blur, and grain.
+- [ ] Measurements distinguish direct transform, Boundary vertex drag, and idle/refinement phases.
+- [ ] Baseline results are recorded before any caching or quality shortcut lands.
+
+**Verification:** Focused test helper/unit coverage plus a repeatable pinned-Chromium manual profile.
+**Dependencies:** None.
+**Likely files:** `src/app/session`, `tests/e2e`, a dedicated performance-fixture module.
+**Estimated scope:** S.
+
+#### Task R1: Introduce the two-axis transform model
+
+**Description:** Add the `0.3.1` transform representation, per-axis validation/normalization,
+commands, persistence, and canonical serialization. This is a deliberate breaking schema boundary.
+
+**Acceptance criteria:**
+
+- [ ] Canonical `0.3.1` documents contain only `scale.x` and `scale.y`, with finite bounded values.
+- [ ] A `0.3.0` document receives a clear unsupported-version diagnostic without mutating the current scene.
+- [ ] Undo/Redo, local recovery, import failure, and starter creation retain deterministic state.
+
+**Verification:** Schema, normalize, command, persistence, rejection, and canonical-round-trip tests.
+**Dependencies:** R0.
+**Likely files:** `src/domain/scene/{types,validate,normalize,canonicalSerialize}.ts`,
+`src/editor/scene/{commands,persistence}.ts`, focused tests.
+**Estimated scope:** M.
+
+#### Task R2: Make transforms portable through the shared renderer
+
+**Description:** Apply two-axis affine transforms once in the shared render IR and keep DOM SVG,
+standalone SVG, CSS embed, Reframe, and export fixtures in parity.
+
+**Acceptance criteria:**
+
+- [ ] X/Y scaling, rotation, Fit/Cover, and all supported artboard ratios match in preview and both exports.
+- [ ] New uniform X/Y scale scenes render identically across preview and export.
+- [ ] Reframe calculates meaningful bounds for non-uniformly scaled groups without changing child order.
+
+**Verification:** Matrix/compiler tests, SVG/CSS serializer tests, and fresh-host Chromium parity fixtures.
+**Dependencies:** R1.
+**Likely files:** `src/renderers/shared/compileSceneRenderIR.ts`, `src/renderers/shared/sceneIr.ts`,
+`src/renderers/{svg,web}`, `src/editor/scene/commands.ts`, focused tests.
+**Estimated scope:** M.
+
+#### Task R3: Deliver pinned selection and the transform cage
+
+**Description:** Add a non-exported selection overlay that supports rail-pinned obscured-layer
+editing, logical bounds, resize handles, rotation, modifier behavior, and focus exit behavior.
+
+**Acceptance criteria:**
+
+- [ ] A rail-selected lower group stays visually beneath covering groups yet can be highlighted and dragged.
+- [ ] Locked/unlocked X/Y resize, opposing-pivot resize, center resize, and `0.5°` rotation agree with More inputs.
+- [ ] `Escape`, empty-stage click, visible picking, and Alt/Option cycling retain predictable selection behavior.
+
+**Verification:** Transform-math units, real-pointer Chromium journey, keyboard/accessibility check, and visual review.
+**Dependencies:** R2.
+**Likely files:** `src/app/components/SceneArtboard.tsx`, a focused transform-overlay component,
+`src/app/session/useSceneEditor.ts`, `src/app/panels/SceneLayerInspector.tsx`, layout styles, tests.
+**Estimated scope:** M.
+
+#### Task R4: Replace noisy Boundary editing with Object/Edit-points and overscan
+
+**Description:** Separate normal object selection from point editing, reveal insertion affordances
+on demand, permit bounded off-artboard vertices, and add an unclipped editor-only overscan layer.
+
+**Acceptance criteria:**
+
+- [ ] A dense primitive no longer shows one permanent midpoint control per segment in normal selection.
+- [ ] A valid anchor can move outside the visible artboard and remain reachable without changing artwork crop.
+- [ ] Crossing/touching/repeated/degenerate candidates remain rejected with the last valid Boundary preserved.
+
+**Verification:** Boundary validator and coordinate-conversion units; pointer-driven Chromium cases for
+Object/Edit-points, off-artboard dragging, insert/remove, invalid topology, and Undo/Redo.
+**Dependencies:** R1, R3.
+**Likely files:** `src/domain/geometry/boundary.ts`, `src/app/components/SceneArtboard.tsx`,
+`src/app/session/useSceneEditor.ts`, layout styles, Boundary tests.
+**Estimated scope:** M.
+
+#### Task R5: Segment the DOM preview without splitting render semantics
+
+**Description:** Evolve the DOM SVG preview away from whole-SVG replacement per interaction so it
+can retain cached above/below z regions, an isolated active group, shared definitions, and a
+non-exported editor overlay while export keeps using the shared material IR.
+
+**Acceptance criteria:**
+
+- [ ] An active lower group stays between cached lower and upper groups in the same SVG compositing order.
+- [ ] Export serialization still uses full-quality shared IR and contains no editor-only fragments.
+- [ ] Stable groups/filter definitions are not rebuilt merely because the active group moves.
+
+**Verification:** Renderer-fragment units, blend/filter parity fixtures, DOM mutation/serialization
+instrumentation, and focused visual comparison.
+**Dependencies:** R0, R2, R3.
+**Likely files:** `src/renderers/dom-svg/DomSceneSvgRenderer.tsx`, `src/renderers/shared`,
+`src/renderers/svg/serializeSceneSvg.ts`, `src/app/components/SceneArtboard.tsx`, renderer tests.
+**Estimated scope:** M.
+
+#### Task R6: Add rAF-coalesced drafts and staged material refinement
+
+**Description:** Replace per-pointer canonical promotion with an ephemeral interaction draft,
+requestAnimationFrame coalescing, cancellation-aware idle refinement, and one final validation/
+history/autosave commit per gesture.
+
+**Acceptance criteria:**
+
+- [ ] Continuous transform and Boundary input uses at most one draft preview per animation frame.
+- [ ] The active layer remains recognizably accurate while expensive grain/bloom polish is deferred.
+- [ ] Pointer release or 150 ms idle restores full fidelity; cancel leaves the committed Scene unchanged.
+
+**Verification:** Interaction-state units, scheduler fake-timer tests, real-pointer 12/24-layer
+Chromium profiles, and undo/export parity checks after an interaction.
+**Dependencies:** R3, R4, R5.
+**Likely files:** `src/app/session/useSceneEditor.ts`, `src/app/components/SceneArtboard.tsx`, a small
+interaction-preview/scheduler module, DOM SVG preview, tests.
+**Estimated scope:** M.
+
+#### Task R7: Prove the refinement and update the usage guide last
+
+**Description:** Run the full acceptance package, document only verified behavior, and obtain the
+human product review required by the original v0.3 plan.
+
+**Acceptance criteria:**
+
+- [ ] The 12-layer benchmark targets p95 pointer-to-draft paint of 33 ms or less and full-quality settle within 250 ms on the recorded pinned-Chromium baseline; the 24-layer fixture has no unbounded input queue.
+- [ ] Chromium covers X/Y/locked/center scale, `0.5°` rotation, rail-pinned hidden-layer drag,
+      Object/Edit-points, overscan, invalid topology, export parity, and accessibility.
+- [ ] The usage guide describes the final controls, modifier keys, editor-only selection behavior,
+      performance-preview behavior, and Boundary limits without promising deferred functionality.
+
+**Verification:** Full pinned-runtime checks, accessibility run, fresh-host exports at multiple
+ratios, performance evidence, screenshots, and human review.
+**Dependencies:** R1–R6.
+**Likely files:** `tests/unit`, `tests/e2e`, `USAGE_GUIDE_V0.3.md`, verification notes.
+**Estimated scope:** M.
+
+### 19.10 Completion gates
+
+This refinement is complete only when all prior v0.3 gates still pass and all of the following are
+true:
+
+- A selected hidden layer can be manipulated through the layer rail without changing its actual
+  visible z-order, and the exported output contains no selection chrome.
+- A user can use locked X/Y scaling, explicitly unlock scale, resize from the center with the
+  documented modifier/control, and enter a precise `0.5°` rotation.
+- The Object/Edit-points distinction removes anchor clutter without any hidden geometry loss.
+- A Boundary vertex can move beyond the artboard in bounded overscan, while invalid topology is still
+  blocked and export crop remains predictable.
+- Continuous interaction does not induce a full-scene recompute/serialize for every raw pointer
+  sample; the staged preview is visually close, z-order-correct, and returns to full vector fidelity.
+- Scene JSON version rejection, SVG, CSS embed, Undo/Redo, autosave, ratio behavior, interaction modes, and
+  existing human-review expectations remain valid.
+- The usage guide is updated only after these behaviors are verified in the finished UI.
+
+### 19.11 Risks and mitigations
+
+| Risk                                                                   | Impact | Mitigation                                                                                                                                                          |
+| ---------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A pinned overlay steals expected top-layer clicks                      | High   | Pin only on explicit layer-rail selection; visibly identify focus; document `Escape`/empty-stage exit; preserve normal canvas picking outside the focused hit area. |
+| Non-uniform scale makes older JSON unavailable or breaks export parity | High   | Use an explicit `0.3.1` format boundary, Git rollback for 0.3.0, one shared affine IR, deterministic round trips, and fresh-host export tests.                      |
+| Off-artboard controls become invisible or confuse crop                 | High   | Separate clipped artwork from padded editor-only overscan; label crop behavior; never export overlay chrome.                                                        |
+| Caching flattens z order or changes blend behavior                     | High   | Cache lower/active/upper regions in one SVG compositing context; test every Interaction mapping against full-quality export.                                        |
+| A 200 ms debounce makes dragging laggy                                 | High   | rAF immediate draft first; idle delay only refines quality; cancellation token drops stale refinements.                                                             |
+| Performance work creates a second design state                         | High   | Draft state is isolated, validation-aware, non-exported, and atomically settled into one canonical commit.                                                          |
+| Time thresholds are brittle across hardware                            | Medium | Record pinned-browser baseline and automate scheduling/queue invariants; treat numerical profiling as evidence paired with human review.                            |
+
+### 19.12 Approval boundary
+
+All product decisions in this refinement addendum are approved. The next step, only when the user
+explicitly authorizes implementation, is R0 followed by the ordered vertical tasks above. Until then,
+this document is the implementation definition of done; no product-code, export-schema, or usage-
+guide behavior is considered changed.

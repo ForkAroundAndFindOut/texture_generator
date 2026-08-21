@@ -1,4 +1,4 @@
-export const SCENE_V03_SCHEMA_VERSION = '0.3.0' as const;
+export const SCENE_V03_SCHEMA_VERSION = '0.3.1' as const;
 
 export const ARTBOARD_RATIOS = ['1:1', '2:1', '1:2', '4:3', '16:9', '21:9'] as const;
 export type ArtboardRatio = (typeof ARTBOARD_RATIOS)[number];
@@ -34,7 +34,7 @@ export interface ScenePoint {
 
 /**
  * V0.3's sole filled geometry contract. T2 adds simple-polygon validity; the
- * schema already constrains stored point count and normalized coordinates.
+ * schema already constrains stored point count and conservative local overscan.
  */
 export interface Boundary {
   vertices: ScenePoint[];
@@ -66,7 +66,7 @@ export interface GrainStyle {
 
 export interface GroupTransform {
   translation: ScenePoint;
-  uniformScale: number;
+  scale: ScenePoint;
   rotationDeg: number;
 }
 

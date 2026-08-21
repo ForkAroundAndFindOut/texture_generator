@@ -1,6 +1,6 @@
 # Texture Lab
 
-Texture Lab v0.3 is a browser-based composition canvas for making soft, multi-colored vector
+Texture Lab v0.3.1 is a browser-based composition canvas for making soft, multi-colored vector
 textures. It stores editable colors, straight-sided Boundaries, material effects, transforms, and
 layer order, then renders the same scene responsively as DOM/SVG, standalone SVG, or CSS.
 
@@ -12,6 +12,8 @@ layer order, then renders the same scene responsively as DOM/SVG, standalone SVG
 - Point-to-point freeform Boundary drawing with magnetic, Enter, and double-click closure.
 - Frontmost layer creation, layer rail selection, Alt/Option-click cycling, and undoable edits.
 - Fill color, pinned White quick color, opacity, edge fade, bloom, grain, and six Interaction modes.
+- Independent X/Y scaling, 0.5° rotation, center-resize modifiers, pinned obscured-layer editing,
+  and responsive staged drag previews.
 - Ratio-aware artboards: `1:1`, `2:1`, `1:2`, `4:3`, `16:9`, and `21:9`, with Fit/Cover framing.
 - Portable Scene JSON, SVG, and responsive CSS exports. No raster export is used.
 
@@ -53,14 +55,16 @@ npm run check
 ```
 
 `npm run check` runs both TypeScript projects, the unit suite, a production build, and the complete
-Chromium authoring/export journey. GitHub Actions runs the same checks on every push and pull
-request.
+Chromium authoring/export journey. The E2E fixture serves the built app on port 4173 by default;
+set `TEXTURE_LAB_BASE_URL` to point the browser at another already-running app server. GitHub
+Actions runs the same checks on every push and pull request.
 
 ## Development workflow
 
 Use a feature branch from the current release line, make small commits, and keep generated files
 out of Git. See [CONTRIBUTING.md](./CONTRIBUTING.md) for the branch, test, and release workflow.
 
-The v0.3 release is represented by the `v0.3.0` tag. Future releases should keep the same project
+The v0.3.0 release is represented by the `v0.3.0` tag. The current v0.3.1 release line is developed
+on `codex/texture-lab-v0.3.1` and released as `v0.3.1`. Future releases should keep this repository
 root, create a new branch, update the package version, and add a new Git tag; old versions remain
 available through Git history rather than duplicate folders.

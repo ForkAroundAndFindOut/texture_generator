@@ -41,7 +41,9 @@ The **Layers** panel is front-to-back: the top row is visually in front.
 - Select a row with its circular select button or by clicking its row.
 - Use **Hide**/**Show**, **Move layer up**, **Move layer down**, **Copy**, and **Remove** to arrange the stack.
 - Drag a visible selected layer directly on the canvas to move it. A drag becomes one undoable action.
-- Use **Position X**, **Position Y**, **Scale**, and **Rotation** in **Layer inspector** for precise changes.
+- Use **Position X**, **Position Y**, **Scale X (%)**, **Scale Y (%)**, and **Rotation** in **Layer inspector** for precise changes. **Lock scale ratio** starts on, so scaling one axis preserves the current proportions; turn it off to stretch an ellipse, ribbon, or other shape independently.
+- **Rotation** has a `0–360°` slider and a direct numeric field, both in `0.5°` increments. Internally, equivalent turns are stored in a deterministic `-180°..180°` form.
+- Selecting a layer from the rail draws a dashed editor-only cage above the visible composition. Drag its interior to move it, or drag a corner handle to resize. With scale lock off, side handles resize one axis; with it on, corner handles preserve proportions. The normal resize pivot is the opposite edge/corner. Hold `Ctrl` (Windows) or `Option` (macOS), or enable **Resize from center**, to expand around the center instead. `Shift` temporarily toggles scale lock during a handle drag. The artwork’s real stack and exported result do not change.
 - Alt/Option-click an overlapping area on the canvas to cycle through visible layers under the pointer. Repeated Alt/Option-clicks continue downward through obscured layers.
 
 Example: after adding an Orb over a Glow, select **Glow** from **Layers**, then select **Orb** and Alt/Option-click the overlap to get back to the Glow without hiding the Orb.
@@ -91,12 +93,12 @@ Example: choose **Sea glass**, press **Remix palette**, then set one foreground 
 4. Use **Remove last point**, **Cancel Boundary**, or `Escape` while the canvas is focused to abandon a draft.
 5. The completed Boundary is added frontmost and selected.
 
-To refine a completed Boundary, select its layer and press **Edit Boundary**.
+To refine a completed Boundary, select its layer and press **Edit Boundary points**.
 
-- Drag a corner handle to move it.
-- Click a `+` midpoint handle to insert a corner.
+- Drag a corner handle to move it; handles can travel beyond the canvas edge within the supported editor overscan.
+- Hover an edge to reveal its `+` add-point control, then click it to insert a corner.
 - Select a corner, then choose **Remove selected Boundary point**.
-- Choose **Finish Boundary editing** or press `Escape` from a Boundary control to leave edit mode.
+- Choose **Finish editing (solidify)** or press `Escape` from a Boundary control to hide point controls while retaining every corner exactly. Re-enter **Edit Boundary points** any time to refine it further.
 
 Boundaries are always one simple filled body: they use 3–64 points, close implicitly to the first point, and reject repeated points, zero-area shapes, and non-adjacent crossing or touching segments. A rejected edit leaves the last valid scene unchanged and explains why in the status message.
 
@@ -108,7 +110,7 @@ Use **Export** in the header to focus the **Portable export** panel without losi
 
 | Control                                       | What it does                                                                            |
 | --------------------------------------------- | --------------------------------------------------------------------------------------- |
-| **Download scene JSON**                       | Saves the complete editable v0.3 scene.                                                 |
+| **Download scene JSON**                       | Saves the complete editable v0.3.1 scene.                                               |
 | **Download SVG**                              | Saves a standalone scalable vector drawing.                                             |
 | **Download CSS**                              | Saves a responsive `.texture-lab-scene` CSS rule with an embedded vector source.        |
 | **Copy CSS**                                  | Copies that responsive rule for quick site integration.                                 |
@@ -117,10 +119,12 @@ Use **Export** in the header to focus the **Portable export** panel without losi
 
 Example — website hero: choose `21:9`, set **Framing** to **Cover**, build with a starter plus a Glow and Band, then use **Download CSS**. Apply the exported `.texture-lab-scene` rule to the website container. Keep **Download scene JSON** beside the project so the art direction remains editable.
 
+During a drag, Texture Lab coalesces pointer updates and temporarily simplifies grain, bloom, and edge-blur polish to keep the editor responsive. It restores the exact full vector preview after a short pause or when you release the pointer. Downloaded SVG and CSS always use the full-fidelity material result.
+
 ## v0.3 limits
 
 V0.3 deliberately does not include raster PNG/JPEG export, freehand curves, multi-body or self-intersecting paths, boolean geometry, animation, shader/WebGL effects, liquid distortion, or true 3D rotation. Cube, Sphere, Cylinder, Cone, Pyramid, and Prism are editable 2D silhouettes. These boundaries keep textures fast to author, easy to understand, and portable across screen sizes.
 
 ## Release-guide verification
 
-This guide was checked against the finished v0.3 release candidate: its bolded control names are the visible editor labels, and its examples use only the supported vector Scene JSON, SVG, and CSS exports.
+This guide describes v0.3.1: its bolded control names are the visible editor labels, and its examples use only the supported vector Scene JSON, SVG, and CSS exports. Scene JSON is deliberately versioned; older 0.3.0 documents are not migrated by this build, so retain them with the corresponding Git revision if needed.

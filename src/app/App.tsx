@@ -51,7 +51,7 @@ export function App({ initialScene, className }: AppProps) {
             {...(editor.selectedGroupId === undefined
               ? {}
               : { selectedGroupId: editor.selectedGroupId })}
-            onSelect={editor.selectGroup}
+            onSelect={editor.selectGroupFromSidebar}
             onRename={editor.rename}
             onSetVisibility={editor.setVisibility}
             onReorder={editor.reorder}
@@ -66,9 +66,15 @@ export function App({ initialScene, className }: AppProps) {
           {...(editor.selectedGroupId === undefined
             ? {}
             : { selectedGroupId: editor.selectedGroupId })}
-          onSelectGroup={editor.selectGroup}
+          onSelectGroup={editor.selectGroupFromCanvas}
           onClearSelection={editor.clearSelection}
           onDrag={editor.applyCanvasDrag}
+          onTransform={editor.applyCanvasTransform}
+          isInteracting={editor.isInteracting}
+          interactionRevision={editor.interactionRevision}
+          scaleLocked={editor.scaleLocked}
+          resizeFromCenter={editor.resizeFromCenter}
+          {...(editor.pinnedGroupId === undefined ? {} : { pinnedGroupId: editor.pinnedGroupId })}
           {...(editor.freeformDraft === undefined ? {} : { freeformDraft: editor.freeformDraft })}
           onFreeformPoint={editor.placeFreeformPoint}
           onFreeformHover={editor.hoverFreeform}
@@ -91,6 +97,10 @@ export function App({ initialScene, className }: AppProps) {
               : { material: editor.selectedMaterial })}
             palette={editor.scene.palette}
             onUpdateTransform={editor.updateTransform}
+            scaleLocked={editor.scaleLocked}
+            onScaleLockChange={editor.setScaleLocked}
+            resizeFromCenter={editor.resizeFromCenter}
+            onResizeFromCenterChange={editor.setResizeFromCenter}
             onUpdateMaterial={editor.updateMaterial}
             boundaryEditing={editor.boundaryEditor !== undefined}
             {...(editor.boundaryEditor?.selectedVertexIndex === undefined

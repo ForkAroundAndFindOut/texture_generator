@@ -129,7 +129,7 @@ describe('v0.3 scene editor commands', () => {
     assertAtomic(
       updateSceneLayerTransformCommand(firstId, {
         translation: { x: 0.3, y: 0.7 },
-        uniformScale: 1.25,
+        scale: { x: 1.25, y: 1.25 },
         rotationDeg: 27,
       }),
     );
@@ -185,7 +185,7 @@ describe('v0.3 scene editor commands', () => {
       store,
       updateSceneLayerTransformCommand(groupId, {
         translation: { x: 0.22, y: 0.76 },
-        uniformScale: 0.45,
+        scale: { x: 0.45, y: 0.45 },
       }),
     );
     const beforeTransform = structuredClone(store.getCurrentRecipe().rootGroups[0]!.transform);

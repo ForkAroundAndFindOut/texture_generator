@@ -1,12 +1,14 @@
 import { Buffer } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
+import { type AddressInfo } from 'node:net';
 import { extname, resolve, sep } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
 const distRoot = resolve('dist');
 let staticServer: Server | undefined;
+let staticServerBaseUrl = 'http://127.0.0.1:4173';
 
 const layerRows = (page: Page) => page.locator('ol[aria-label="Composition layers"] > li');
 const compositionCanvas = (page: Page) => page.getByRole('region', { name: 'Composition canvas' });
@@ -41,7 +43,7 @@ async function expectFreshResponsiveEmbed(
 }
 
 async function expectNoAxeViolations(page: Page): Promise<void> {
-  await page.addScriptTag({ url: 'http://127.0.0.1:4173/_test/axe.min.js' });
+  await page.addScriptTag({ url: `${staticServerBaseUrl}/_test/axe.min.js` });
   const violations = await page.evaluate(async () => {
     const axe = (
       window as unknown as {
@@ -73,7 +75,7 @@ async function expectNoAxeViolations(page: Page): Promise<void> {
 
 test.beforeAll(async () => {
   staticServer = createServer(async (request, response) => {
-    const pathname = new URL(request.url ?? '/', 'http://127.0.0.1:4173').pathname;
+    const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
     if (pathname === '/_test/axe.min.js') {
       const axe = await readFile(resolve('node_modules/axe-core/axe.min.js'));
       response.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' }).end(axe);
@@ -101,13 +103,23 @@ test.beforeAll(async () => {
   });
   await new Promise<void>((resolveListen, reject) => {
     staticServer!.once('error', reject);
-    staticServer!.listen(4173, '127.0.0.1', resolveListen);
+    const port = process.env['TEXTURE_LAB_BASE_URL'] === undefined ? 4173 : 0;
+    staticServer!.listen(port, '127.0.0.1', () => {
+      const address = staticServer!.address();
+      if (address === null || typeof address === 'string') {
+        reject(new Error('The E2E fixture server did not expose a TCP address.'));
+        return;
+      }
+      staticServerBaseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
+      resolveListen();
+    });
   });
 });
 
 test.afterAll(async () => {
   const server = staticServer;
   staticServer = undefined;
+  staticServerBaseUrl = 'http://127.0.0.1:4173';
   if (server === undefined) return;
   server.closeAllConnections();
   await new Promise<void>((resolveClose, rejectClose) => {
@@ -124,7 +136,7 @@ test('v0.3 authors a portable art composition without rasterizing it', async ({ 
   });
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
-  await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' });
+  await page.goto('/', { waitUntil: 'networkidle' });
   await expect(page.getByRole('heading', { name: 'Texture Lab' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Starter compositions' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Visual gestures' })).toBeVisible();
@@ -241,7 +253,7 @@ test('v0.3 authors a portable art composition without rasterizing it', async ({ 
   const scenePath = await sceneDownload.path();
   if (scenePath === null) throw new Error('Scene JSON download has no readable path.');
   const sceneJson = await readFile(scenePath, 'utf8');
-  expect(JSON.parse(sceneJson)).toMatchObject({ schemaVersion: '0.3.0' });
+  expect(JSON.parse(sceneJson)).toMatchObject({ schemaVersion: '0.3.1' });
 
   const svgDownloadEvent = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download SVG' }).click();
@@ -345,7 +357,7 @@ test('v0.3 supports remix, reframe, layered selection, and safe Boundary editing
   });
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
-  await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' });
+  await page.goto('/', { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: 'Choose Aurora wave starter' }).focus();
   await page.keyboard.press('Enter');
   const rows = layerRows(page);
@@ -357,7 +369,7 @@ test('v0.3 supports remix, reframe, layered selection, and safe Boundary editing
   await expect(sky).not.toHaveValue(originalSky);
 
   const positionX = page.getByRole('spinbutton', { name: 'Position X' });
-  const scale = page.getByRole('spinbutton', { name: 'Scale' });
+  const scale = page.getByRole('spinbutton', { name: 'Scale X (%)' });
   const beforeRatioPosition = await positionX.inputValue();
   const beforeReframeScale = await scale.inputValue();
   await page.getByRole('button', { name: '21:9', exact: true }).click();
@@ -382,7 +394,7 @@ test('v0.3 supports remix, reframe, layered selection, and safe Boundary editing
 
   await page.getByRole('button', { name: /Select Glow/u }).focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('heading', { name: /Glow/u })).toBeVisible();
+  await expect(page.getByLabel('Layer inspector').getByRole('heading')).toHaveText(/Glow/u);
   const glowRow = rows.filter({
     has: page.getByRole('button', { name: /Select Glow/u }),
   });
@@ -402,7 +414,7 @@ test('v0.3 supports remix, reframe, layered selection, and safe Boundary editing
     canvasBounds.y + canvasBounds.height / 2,
   );
   await page.keyboard.up('Alt');
-  await expect(page.getByRole('heading', { name: /Glow/u })).toBeVisible();
+  await expect(page.getByLabel('Layer inspector').getByRole('heading')).toHaveText(/Orb/u);
 
   const beforeBoundary = await rows.count();
   await page.getByRole('button', { name: 'Draw Boundary' }).click();
@@ -426,6 +438,7 @@ test('v0.3 supports remix, reframe, layered selection, and safe Boundary editing
   const corners = page.getByRole('button', { name: /^Boundary corner /u });
   await expect(corners).toHaveCount(3);
 
+  await page.locator('.scene-artboard__boundary-segment').first().hover();
   await page.getByRole('button', { name: 'Insert Boundary corner after corner 1' }).click();
   await expect(corners).toHaveCount(4);
   const corner = page.getByRole('button', { name: 'Boundary corner 2' });
@@ -504,7 +517,7 @@ test('v0.3 starter gallery produces six distinct visible compositions', async ({
     ['violet-ribbons', 'Violet ribbons'],
   ] as const;
 
-  await page.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' });
+  await page.goto('/', { waitUntil: 'networkidle' });
   const artboard = page.locator('.scene-artboard__frame');
 
   for (const [id, label] of starters) {

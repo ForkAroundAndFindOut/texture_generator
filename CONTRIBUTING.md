@@ -17,7 +17,7 @@ No secrets or environment variables are needed for local development.
 
 - Keep released versions in immutable tags such as `v0.3.0`.
 - Create the next implementation branch from the latest accepted release, for example
-  `codex/texture-lab-v0.4`.
+  `codex/texture-lab-v0.3.1`.
 - Keep commits focused and do not commit `node_modules`, `dist`, caches, browser reports, or local
   runtime downloads.
 - Do not rewrite released tags.
@@ -44,8 +44,8 @@ intentionally changed, explain the product reason in the pull request.
 4. Commit the release and create an annotated tag, for example:
 
    ```bash
-   git tag -a v0.4.0 -m "Texture Lab v0.4.0"
-   git push origin v0.4.0
+   git tag -a v0.3.1 -m "Texture Lab v0.3.1"
+   git push origin v0.3.1
    ```
 
 5. Keep the previous release tag available for rollback and comparison.

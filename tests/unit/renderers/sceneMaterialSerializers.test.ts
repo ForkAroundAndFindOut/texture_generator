@@ -21,7 +21,7 @@ function sceneFixture(): SceneV03 {
       visible: true,
       transform: {
         translation: { x: 0.5, y: 0.5 },
-        uniformScale: 1,
+        scale: { x: 1, y: 1 },
         rotationDeg: 0,
       },
       children: [
@@ -67,6 +67,16 @@ describe('v0.3 scene material serializers', () => {
     expect(svg).toContain('fill="#FF0000"');
     expect(svg).not.toContain('<script');
     expect(svg).not.toContain('data:image');
+  });
+
+  it('offers an editor-only draft serialisation without expensive filter passes', () => {
+    const draft = serializeSceneSvg(compileSceneRenderIR(sceneFixture()), { quality: 'draft' });
+
+    expect(draft).not.toContain('data-material-feather');
+    expect(draft).not.toContain('data-material-bloom');
+    expect(draft).not.toContain('<feGaussianBlur');
+    expect(draft).not.toContain('<feTurbulence');
+    expect(draft).toContain('fill="#FF0000"');
   });
 
   it('serializes a responsive CSS host with the same self-contained SVG source', () => {

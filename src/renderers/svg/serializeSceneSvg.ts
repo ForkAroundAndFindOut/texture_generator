@@ -10,6 +10,8 @@ import { serializePathCommands } from './pathSerializer';
 export type SceneSvgSerializationOptions = {
   readonly title?: string;
   readonly description?: string;
+  /** Editor-only simplification: export always uses the default full quality. */
+  readonly quality?: 'full' | 'draft';
 };
 
 const number = (value: number): string => {
@@ -55,10 +57,13 @@ function grainSeed(value: number): number {
   return Math.abs(value % 10_000) + 1;
 }
 
-function serializeMaterialDefinitions(material: SceneMaterialRenderIR): string {
+function serializeMaterialDefinitions(
+  material: SceneMaterialRenderIR,
+  quality: SceneSvgSerializationOptions['quality'],
+): string {
   const ids = materialIds(material);
   const definitions: string[] = [];
-  if (material.edgeFeather > 0) {
+  if (quality === 'full' && material.edgeFeather > 0) {
     const deviation = Math.max(0.001, material.edgeFeather * 0.04);
     definitions.push(
       '<filter id="' +
@@ -68,7 +73,7 @@ function serializeMaterialDefinitions(material: SceneMaterialRenderIR): string {
         '"/></filter>',
     );
   }
-  if (material.bloom > 0) {
+  if (quality === 'full' && material.bloom > 0) {
     const deviation = Math.max(0.001, material.bloom * 0.1);
     definitions.push(
       '<filter id="' +
@@ -78,7 +83,7 @@ function serializeMaterialDefinitions(material: SceneMaterialRenderIR): string {
         '"/></filter>',
     );
   }
-  if (material.grain !== undefined && material.grain.amount > 0) {
+  if (quality === 'full' && material.grain !== undefined && material.grain.amount > 0) {
     definitions.push(
       '<filter id="' +
         escapeXml(ids.grain) +
@@ -94,10 +99,13 @@ function serializeMaterialDefinitions(material: SceneMaterialRenderIR): string {
   return definitions.join('');
 }
 
-function corePath(material: SceneMaterialRenderIR): string {
+function corePath(
+  material: SceneMaterialRenderIR,
+  quality: SceneSvgSerializationOptions['quality'],
+): string {
   const grain = material.grain;
   const grainFilter =
-    grain === undefined || grain.amount === 0
+    quality !== 'full' || grain === undefined || grain.amount === 0
       ? ''
       : ' filter="url(#' + escapeXml(materialIds(material).grain) + ')"';
   return (
@@ -113,8 +121,11 @@ function corePath(material: SceneMaterialRenderIR): string {
   );
 }
 
-function bloomPath(material: SceneMaterialRenderIR): string {
-  if (material.bloom === 0) return '';
+function bloomPath(
+  material: SceneMaterialRenderIR,
+  quality: SceneSvgSerializationOptions['quality'],
+): string {
+  if (quality !== 'full' || material.bloom === 0) return '';
   return (
     '<path data-material-bloom="true" d="' +
     materialPath(material) +
@@ -130,8 +141,11 @@ function bloomPath(material: SceneMaterialRenderIR): string {
   );
 }
 
-function featherPath(material: SceneMaterialRenderIR): string {
-  if (material.edgeFeather === 0) return '';
+function featherPath(
+  material: SceneMaterialRenderIR,
+  quality: SceneSvgSerializationOptions['quality'],
+): string {
+  if (quality !== 'full' || material.edgeFeather === 0) return '';
   return (
     '<path data-material-feather="true" d="' +
     materialPath(material) +
@@ -149,7 +163,10 @@ function featherPath(material: SceneMaterialRenderIR): string {
   );
 }
 
-function serializeMaterial(material: SceneMaterialRenderIR): string {
+function serializeMaterial(
+  material: SceneMaterialRenderIR,
+  quality: SceneSvgSerializationOptions['quality'],
+): string {
   const hidden = material.visible ? '' : ' display="none"';
   return (
     '<g id="' +
@@ -165,18 +182,24 @@ function serializeMaterial(material: SceneMaterialRenderIR): string {
     '"' +
     hidden +
     '>' +
-    bloomPath(material) +
-    featherPath(material) +
-    corePath(material) +
+    bloomPath(material, quality) +
+    featherPath(material, quality) +
+    corePath(material, quality) +
     '</g>'
   );
 }
 
-function serializeNode(node: SceneRenderNodeIR): string {
-  return node.kind === 'group' ? serializeGroup(node) : serializeMaterial(node);
+function serializeNode(
+  node: SceneRenderNodeIR,
+  quality: SceneSvgSerializationOptions['quality'],
+): string {
+  return node.kind === 'group' ? serializeGroup(node, quality) : serializeMaterial(node, quality);
 }
 
-function serializeGroup(group: SceneRenderGroupIR): string {
+function serializeGroup(
+  group: SceneRenderGroupIR,
+  quality: SceneSvgSerializationOptions['quality'],
+): string {
   const hidden = group.visible ? '' : ' display="none"';
   return (
     '<g id="scene-group-' +
@@ -186,7 +209,7 @@ function serializeGroup(group: SceneRenderGroupIR): string {
     '"' +
     hidden +
     '>' +
-    group.children.map(serializeNode).join('') +
+    group.children.map((child) => serializeNode(child, quality)).join('') +
     '</g>'
   );
 }
@@ -199,13 +222,16 @@ export function serializeSceneSvg(
   ir: SceneRenderIR,
   options: SceneSvgSerializationOptions = {},
 ): string {
+  const quality = options.quality ?? 'full';
   const title = escapeXml(options.title ?? 'Texture Lab v0.3 scene');
   const description = escapeXml(
     options.description ?? 'Responsive vector texture exported from Texture Lab.',
   );
   const titleId = 'scene-title-' + ir.sceneId;
   const descriptionId = 'scene-description-' + ir.sceneId;
-  const definitions = ir.materials.map(serializeMaterialDefinitions).join('');
+  const definitions = ir.materials
+    .map((material) => serializeMaterialDefinitions(material, quality))
+    .join('');
   const viewBox = ir.artboard.viewBox;
 
   return (
@@ -250,7 +276,7 @@ export function serializeSceneSvg(
     '" fill="' +
     ir.background +
     '"/>' +
-    ir.rootGroups.map(serializeGroup).join('') +
+    ir.rootGroups.map((group) => serializeGroup(group, quality)).join('') +
     '</svg>\n'
   );
 }

@@ -75,7 +75,7 @@ function groupLocalMatrix(transform: GroupTransform): RawMatrix {
   const radians = (transform.rotationDeg * Math.PI) / 180;
   const cosine = Math.cos(radians);
   const sine = Math.sin(radians);
-  const scale = transform.uniformScale;
+  const scale = transform.scale;
   const translate: RawMatrix = {
     a: 1,
     b: 0,
@@ -85,11 +85,11 @@ function groupLocalMatrix(transform: GroupTransform): RawMatrix {
     f: transform.translation.y,
   };
   const rotation: RawMatrix = { a: cosine, b: sine, c: -sine, d: cosine, e: 0, f: 0 };
-  const uniformScale: RawMatrix = { a: scale, b: 0, c: 0, d: scale, e: 0, f: 0 };
+  const nonUniformScale: RawMatrix = { a: scale.x, b: 0, c: 0, d: scale.y, e: 0, f: 0 };
   const centerOffset: RawMatrix = { a: 1, b: 0, c: 0, d: 1, e: -0.5, f: -0.5 };
   return multiplyMatrices(
     translate,
-    multiplyMatrices(rotation, multiplyMatrices(uniformScale, centerOffset)),
+    multiplyMatrices(rotation, multiplyMatrices(nonUniformScale, centerOffset)),
   );
 }
 

@@ -35,6 +35,27 @@ describe('shared v0.3 Boundary contract', () => {
     expect(signedBoundaryArea(validTriangle.vertices)).toBeGreaterThan(0);
   });
 
+  it('permits practical local overscan while keeping a finite authoring boundary', () => {
+    expect(
+      validateBoundary({
+        vertices: [
+          { x: -0.35, y: 0.2 },
+          { x: 1.25, y: 0.3 },
+          { x: 0.5, y: 1.2 },
+        ],
+      }),
+    ).toEqual({ ok: true });
+    expect(
+      issueCodes({
+        vertices: [
+          { x: -2.1, y: 0.2 },
+          { x: 0.8, y: 0.2 },
+          { x: 0.5, y: 0.8 },
+        ],
+      }),
+    ).toContain('boundary-coordinate-out-of-range');
+  });
+
   it('rejects degenerate, repeated, and self-crossing polygon data', () => {
     expect(issueCodes({ vertices: validTriangle.vertices.slice(0, 2) })).toContain(
       'invalid-boundary-count',

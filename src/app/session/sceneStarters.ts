@@ -127,7 +127,7 @@ function group(slot: number, name: string, child: SceneMaterial): SceneGroup {
     id: fixedId('group', slot),
     name,
     visible: true,
-    transform: { translation: { x: 0.5, y: 0.5 }, uniformScale: 1, rotationDeg: 0 },
+    transform: { translation: { x: 0.5, y: 0.5 }, scale: { x: 1, y: 1 }, rotationDeg: 0 },
     children: [child],
   };
 }

@@ -31,7 +31,7 @@ function redOverGreenScene(interaction: InteractionMode): SceneV03 {
       visible: true,
       transform: {
         translation: { x: 0.5, y: 0.5 },
-        uniformScale: 1,
+        scale: { x: 1, y: 1 },
         rotationDeg: 0,
       },
       children: [

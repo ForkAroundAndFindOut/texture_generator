@@ -55,7 +55,7 @@ export type SceneIdSequence = { value: number };
 
 export type SceneLayerTransformPatch = {
   readonly translation?: Partial<ScenePoint>;
-  readonly uniformScale?: number;
+  readonly scale?: Partial<ScenePoint>;
   readonly rotationDeg?: number;
 };
 
@@ -310,7 +310,7 @@ function validateTransformPatch(patch: SceneLayerTransformPatch): SceneCommandDi
   const keys = Object.keys(raw);
   if (
     keys.length === 0 ||
-    keys.some((key) => !['translation', 'uniformScale', 'rotationDeg'].includes(key))
+    keys.some((key) => !['translation', 'scale', 'rotationDeg'].includes(key))
   ) {
     return [
       diagnostic(
@@ -353,17 +353,33 @@ function validateTransformPatch(patch: SceneLayerTransformPatch): SceneCommandDi
       }
     }
   }
-  if (
-    patch.uniformScale !== undefined &&
-    (!Number.isFinite(patch.uniformScale) || patch.uniformScale < 0.05 || patch.uniformScale > 4)
-  ) {
-    diagnostics.push(
-      diagnostic(
-        'out-of-range-number',
-        '/transform/uniformScale',
-        'Layer scale must be finite and within 0.05 through 4.',
-      ),
-    );
+  if (patch.scale !== undefined) {
+    const scale = patch.scale as Record<string, unknown>;
+    const scaleKeys = Object.keys(scale);
+    if (
+      patch.scale === null ||
+      typeof patch.scale !== 'object' ||
+      Array.isArray(patch.scale) ||
+      scaleKeys.length === 0 ||
+      scaleKeys.some((key) => key !== 'x' && key !== 'y')
+    ) {
+      diagnostics.push(
+        diagnostic('invalid-transform-patch', '/transform/scale', 'Scale patch is invalid.'),
+      );
+    } else {
+      for (const axis of ['x', 'y'] as const) {
+        const value = patch.scale[axis];
+        if (value !== undefined && (!Number.isFinite(value) || value < 0.05 || value > 4)) {
+          diagnostics.push(
+            diagnostic(
+              'out-of-range-number',
+              '/transform/scale/' + axis,
+              'Layer scale must be finite and within 0.05 through 4.',
+            ),
+          );
+        }
+      }
+    }
   }
   if (
     patch.rotationDeg !== undefined &&
@@ -386,21 +402,21 @@ function transformWithPatch(
 ): GroupTransform {
   return {
     translation: { ...transform.translation, ...patch.translation },
-    uniformScale: patch.uniformScale ?? transform.uniformScale,
+    scale: { ...transform.scale, ...patch.scale },
     rotationDeg: patch.rotationDeg ?? transform.rotationDeg,
   };
 }
 
 const DEFAULT_NEW_LAYER_TRANSFORM: GroupTransform = {
   translation: { x: 0.5, y: 0.5 },
-  uniformScale: 1,
+  scale: { x: 1, y: 1 },
   rotationDeg: 0,
 };
 
 function validateCompleteGroupTransform(transform: GroupTransform): SceneCommandDiagnostic[] {
   return validateTransformPatch({
     translation: transform.translation,
-    uniformScale: transform.uniformScale,
+    scale: transform.scale,
     rotationDeg: transform.rotationDeg,
   });
 }
@@ -1110,7 +1126,10 @@ export function reframeSceneContentCommand(): DesignCommand<SceneV03, SceneComma
           x: targetCenter.x + scale * (group.transform.translation.x - sourceCenter.x),
           y: targetCenter.y + scale * (group.transform.translation.y - sourceCenter.y),
         },
-        uniformScale: group.transform.uniformScale * scale,
+        scale: {
+          x: group.transform.scale.x * scale,
+          y: group.transform.scale.y * scale,
+        },
         rotationDeg: group.transform.rotationDeg,
       };
       return { ...cloneRecipe(group), transform };

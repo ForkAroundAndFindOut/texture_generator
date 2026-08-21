@@ -40,7 +40,7 @@ function normalizePoint(value: ScenePoint): ScenePoint {
 function normalizeTransform(value: GroupTransform): GroupTransform {
   return {
     translation: normalizePoint(value.translation),
-    uniformScale: quantizeSceneV03Number(value.uniformScale),
+    scale: normalizePoint(value.scale),
     rotationDeg: normalizeSceneV03Rotation(value.rotationDeg),
   };
 }

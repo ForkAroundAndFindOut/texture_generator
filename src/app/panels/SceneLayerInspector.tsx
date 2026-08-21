@@ -18,6 +18,10 @@ export type SceneLayerInspectorProps = {
   readonly selectedBoundaryVertexIndex?: number;
   readonly onToggleBoundaryEdit: () => void;
   readonly onRemoveBoundaryVertex: () => void;
+  readonly scaleLocked: boolean;
+  readonly onScaleLockChange: (locked: boolean) => void;
+  readonly resizeFromCenter: boolean;
+  readonly onResizeFromCenterChange: (fromCenter: boolean) => void;
 };
 
 type NumericControlProps = {
@@ -113,6 +117,15 @@ function RangeControl({ label, value, onChange }: RangeControlProps) {
   );
 }
 
+function displayRotation(rotationDeg: number): number {
+  return rotationDeg < 0 ? rotationDeg + 360 : rotationDeg;
+}
+
+function canonicalRotation(displayDegrees: number): number {
+  const normalized = ((displayDegrees % 360) + 360) % 360;
+  return normalized >= 180 ? normalized - 360 : normalized;
+}
+
 function materialColor(material: SceneMaterial, palette: readonly ScenePaletteEntry[]): string {
   const fill = material.fill;
   if (fill.kind === 'local') return fill.color;
@@ -130,6 +143,10 @@ export function SceneLayerInspector({
   selectedBoundaryVertexIndex,
   onToggleBoundaryEdit,
   onRemoveBoundaryVertex,
+  scaleLocked,
+  onScaleLockChange,
+  resizeFromCenter,
+  onResizeFromCenterChange,
 }: SceneLayerInspectorProps) {
   if (group === undefined || material === undefined) {
     return (
@@ -144,6 +161,17 @@ export function SceneLayerInspector({
   const grain = material.grain;
   const fillColor = materialColor(material, palette);
   const update = (patch: SceneMaterialPatch): void => onUpdateMaterial(material.id, patch);
+  const updateScale = (axis: 'x' | 'y', next: number): void => {
+    const counterpart = axis === 'x' ? 'y' : 'x';
+    if (!scaleLocked) {
+      onUpdateTransform(group.id, { scale: { [axis]: next } });
+      return;
+    }
+    const current = group.transform.scale;
+    const ratio = current[counterpart] / current[axis];
+    const linked = Math.min(4, Math.max(0.05, next * ratio));
+    onUpdateTransform(group.id, { scale: { [axis]: next, [counterpart]: linked } });
+  };
 
   return (
     <section className="scene-layer-inspector" aria-label="Layer inspector">
@@ -169,20 +197,65 @@ export function SceneLayerInspector({
           onCommit={(value) => onUpdateTransform(group.id, { translation: { y: value } })}
         />
         <NumericControl
-          label="Scale"
-          value={group.transform.uniformScale}
-          min={0.05}
-          max={4}
-          step={0.01}
-          onCommit={(value) => onUpdateTransform(group.id, { uniformScale: value })}
+          label="Scale X (%)"
+          value={group.transform.scale.x * 100}
+          min={5}
+          max={400}
+          step={0.5}
+          onCommit={(value) => updateScale('x', value / 100)}
         />
         <NumericControl
-          label="Rotation"
-          value={group.transform.rotationDeg}
-          min={-180}
-          max={180}
-          step={1}
-          onCommit={(value) => onUpdateTransform(group.id, { rotationDeg: value })}
+          label="Scale Y (%)"
+          value={group.transform.scale.y * 100}
+          min={5}
+          max={400}
+          step={0.5}
+          onCommit={(value) => updateScale('y', value / 100)}
+        />
+        <label className="scene-layer-inspector__toggle">
+          <input
+            type="checkbox"
+            checked={scaleLocked}
+            onChange={(event) => onScaleLockChange(event.currentTarget.checked)}
+          />
+          <span>Lock scale ratio</span>
+        </label>
+        <label className="scene-layer-inspector__toggle">
+          <input
+            type="checkbox"
+            checked={resizeFromCenter}
+            onChange={(event) => onResizeFromCenterChange(event.currentTarget.checked)}
+          />
+          <span>Resize from center</span>
+        </label>
+        <label className="scene-layer-inspector__rotation">
+          <span>
+            Rotation
+            <output>{displayRotation(group.transform.rotationDeg).toFixed(1)}°</output>
+          </span>
+          <input
+            aria-label="Rotation slider"
+            type="range"
+            min="0"
+            max="360"
+            step="0.5"
+            value={displayRotation(group.transform.rotationDeg)}
+            onChange={(event) =>
+              onUpdateTransform(group.id, {
+                rotationDeg: canonicalRotation(Number(event.currentTarget.value)),
+              })
+            }
+          />
+        </label>
+        <NumericControl
+          label="Rotation (degrees)"
+          value={displayRotation(group.transform.rotationDeg)}
+          min={0}
+          max={360}
+          step={0.5}
+          onCommit={(value) =>
+            onUpdateTransform(group.id, { rotationDeg: canonicalRotation(value) })
+          }
         />
       </fieldset>
       <fieldset>
@@ -244,13 +317,13 @@ export function SceneLayerInspector({
       <fieldset>
         <legend>Boundary</legend>
         <button type="button" aria-pressed={boundaryEditing} onClick={onToggleBoundaryEdit}>
-          {boundaryEditing ? 'Finish Boundary editing' : 'Edit Boundary'}
+          {boundaryEditing ? 'Finish editing (solidify)' : 'Edit Boundary points'}
         </button>
         {boundaryEditing ? (
           <>
             <p className="scene-layer-inspector__hint">
-              Drag a corner on the canvas. Click a midpoint to add a corner, then select a corner to
-              remove it. The solid body cannot cross itself.
+              Drag a corner, including beyond the canvas. Hover an edge to reveal its add-point
+              control. Finish editing to keep this exact solid body without visible anchors.
             </p>
             <button
               type="button"

@@ -22,7 +22,7 @@ describe('v0.3 portable scene exports', () => {
 
     expect(bundle.sceneJson.endsWith('\n')).toBe(true);
     expect(JSON.parse(bundle.sceneJson)).toMatchObject({
-      schemaVersion: '0.3.0',
+      schemaVersion: '0.3.1',
       artboard: { ratio: '21:9' },
     });
     expect(bundle.svg).toContain('<svg');
@@ -49,7 +49,7 @@ describe('v0.3 portable scene exports', () => {
         visible: true,
         transform: {
           translation: { x: 0.43, y: 0.58 },
-          uniformScale: 0.83,
+          scale: { x: 0.83, y: 0.83 },
           rotationDeg: -12.5,
         },
         children: [
@@ -60,7 +60,7 @@ describe('v0.3 portable scene exports', () => {
             visible: true,
             transform: {
               translation: { x: 0.5, y: 0.5 },
-              uniformScale: 1.1,
+              scale: { x: 1.1, y: 1.1 },
               rotationDeg: 8,
             },
             children: [

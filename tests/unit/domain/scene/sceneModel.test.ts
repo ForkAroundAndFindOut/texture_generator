@@ -16,7 +16,7 @@ describe('v0.3 scene model foundations', () => {
 
     expect(first).toEqual(second);
     expect(first).not.toBe(second);
-    expect(first.schemaVersion).toBe('0.3.0');
+    expect(first.schemaVersion).toBe('0.3.1');
     expect(first.artboard).toEqual({ ratio: '16:9', fitMode: 'cover' });
     expect(first.palette).toHaveLength(4);
     expect(first.palette.map((entry) => entry.color)).toEqual([

@@ -49,6 +49,7 @@ import { nextScenePaletteRemix } from './paletteRemix';
 
 type SceneStore = ReturnType<typeof createSceneEditorStore>;
 type BrowserTimer = ReturnType<typeof globalThis.setTimeout>;
+type BrowserFrame = ReturnType<typeof globalThis.requestAnimationFrame>;
 type ActiveCanvasGesture = {
   readonly group: ReturnType<SceneStore['beginInteraction']>;
   readonly baseScene: SceneV03;
@@ -171,11 +172,18 @@ export function useSceneEditor(initialScene?: SceneV03) {
   const [selectedGroupId, setSelectedGroupId] = useState<GroupId | undefined>(
     () => store.getCurrentRecipe().rootGroups.at(-1)?.id,
   );
+  const [pinnedGroupId, setPinnedGroupId] = useState<GroupId | undefined>(undefined);
+  const [scaleLocked, setScaleLocked] = useState(true);
+  const [resizeFromCenter, setResizeFromCenter] = useState(false);
   const [feedback, setFeedback] = useState<string | undefined>(boot.feedback);
+  const [isInteracting, setIsInteracting] = useState(false);
+  const [interactionRevision, setInteractionRevision] = useState(0);
   const sequence = useRef({ value: 10_000 });
   const disposeTimer = useRef<BrowserTimer | undefined>(undefined);
   const activeCanvasGesture = useRef<ActiveCanvasGesture | undefined>(undefined);
   const activeBoundaryGesture = useRef<ActiveBoundaryGesture | undefined>(undefined);
+  const interactionFrame = useRef<BrowserFrame | undefined>(undefined);
+  const scheduledInteractionMove = useRef<(() => void) | undefined>(undefined);
   const [freeformDraft, setFreeformDraft] = useState<MutableFreeformDraft | undefined>(undefined);
   const freeformDraftRef = useRef<MutableFreeformDraft | undefined>(undefined);
   const [boundaryEditMaterialId, setBoundaryEditMaterialId] = useState<string | undefined>(
@@ -198,6 +206,9 @@ export function useSceneEditor(initialScene?: SceneV03) {
 
   useEffect(
     () => () => {
+      if (interactionFrame.current !== undefined) {
+        globalThis.cancelAnimationFrame(interactionFrame.current);
+      }
       disposeTimer.current = globalThis.setTimeout(() => store.dispose(), 0);
     },
     [store],
@@ -221,25 +232,57 @@ export function useSceneEditor(initialScene?: SceneV03) {
     setSelectedBoundaryVertexIndex(undefined);
   }
 
+  function cancelScheduledInteractionMove(): void {
+    if (interactionFrame.current !== undefined) {
+      globalThis.cancelAnimationFrame(interactionFrame.current);
+      interactionFrame.current = undefined;
+    }
+    scheduledInteractionMove.current = undefined;
+  }
+
+  function flushScheduledInteractionMove(): void {
+    const move = scheduledInteractionMove.current;
+    cancelScheduledInteractionMove();
+    move?.();
+  }
+
+  /** Collapse pointer storms into one cheap scene update per animation frame. */
+  function scheduleInteractionMove(move: () => void): void {
+    scheduledInteractionMove.current = move;
+    if (interactionFrame.current !== undefined) return;
+    interactionFrame.current = globalThis.requestAnimationFrame(() => {
+      interactionFrame.current = undefined;
+      const latest = scheduledInteractionMove.current;
+      scheduledInteractionMove.current = undefined;
+      latest?.();
+    });
+  }
+
   function settleCanvasGesture(commitChange: boolean): void {
     const active = activeCanvasGesture.current;
     if (active === undefined) return;
+    if (commitChange) flushScheduledInteractionMove();
+    else cancelScheduledInteractionMove();
     const result =
       commitChange && active.changed
         ? store.finishInteraction(active.group, active.latestCandidate)
         : store.cancelInteraction(active.group);
     activeCanvasGesture.current = undefined;
+    setIsInteracting(false);
     if (!result.ok) setFeedback(feedbackFrom(result.diagnostics));
   }
 
   function settleBoundaryGesture(commitChange: boolean): void {
     const active = activeBoundaryGesture.current;
     if (active === undefined) return;
+    if (commitChange) flushScheduledInteractionMove();
+    else cancelScheduledInteractionMove();
     const result =
       commitChange && active.changed
         ? store.finishInteraction(active.group, active.latestCandidate)
         : store.cancelInteraction(active.group);
     activeBoundaryGesture.current = undefined;
+    setIsInteracting(false);
     if (!result.ok) setFeedback(feedbackFrom(result.diagnostics));
   }
 
@@ -487,6 +530,31 @@ export function useSceneEditor(initialScene?: SceneV03) {
     }
   }
 
+  function promoteBoundaryVertexMove(active: ActiveBoundaryGesture, point: ScenePoint): void {
+    if (activeBoundaryGesture.current !== active) return;
+    const material = materialInScene(active.baseScene, active.materialId);
+    if (material === undefined) return;
+    const vertices = material.geometry.boundary.vertices.map((vertex, index) =>
+      index === active.vertexIndex ? point : { ...vertex },
+    );
+    const prepared = updateSceneMaterialBoundaryCommand(active.materialId, { vertices }).prepare(
+      active.baseScene,
+    );
+    if (prepared.kind !== 'success') {
+      setFeedback(feedbackFrom(prepared.diagnostics));
+      return;
+    }
+    const result = store.promoteInteraction(active.group, prepared.candidate);
+    if (!result.ok) {
+      setFeedback(feedbackFrom(result.diagnostics));
+      return;
+    }
+    active.latestCandidate = prepared.candidate;
+    active.changed = true;
+    setInteractionRevision((revision) => revision + 1);
+    setFeedback(undefined);
+  }
+
   function applyBoundaryVertexEdit(
     materialId: string,
     vertexIndex: number,
@@ -519,6 +587,8 @@ export function useSceneEditor(initialScene?: SceneV03) {
         changed: false,
       };
       setSelectedBoundaryVertexIndex(vertexIndex);
+      setIsInteracting(true);
+      setInteractionRevision((revision) => revision + 1);
       return;
     }
 
@@ -531,28 +601,34 @@ export function useSceneEditor(initialScene?: SceneV03) {
       return;
     }
     if (phase === 'move' && point !== undefined) {
-      const material = materialInScene(active.baseScene, materialId);
-      if (material === undefined) return;
-      const vertices = material.geometry.boundary.vertices.map((vertex, index) =>
-        index === vertexIndex ? point : { ...vertex },
-      );
-      const prepared = updateSceneMaterialBoundaryCommand(materialId, { vertices }).prepare(
-        active.baseScene,
-      );
-      if (prepared.kind !== 'success') {
-        setFeedback(feedbackFrom(prepared.diagnostics));
-        return;
-      }
-      const result = store.promoteInteraction(active.group, prepared.candidate);
-      if (!result.ok) {
-        setFeedback(feedbackFrom(result.diagnostics));
-        return;
-      }
-      active.latestCandidate = prepared.candidate;
-      active.changed = true;
-      setFeedback(undefined);
+      scheduleInteractionMove(() => promoteBoundaryVertexMove(active, point));
     }
     if (phase === 'end') settleBoundaryGesture(true);
+  }
+
+  function promoteCanvasMove(active: ActiveCanvasGesture, deltaX: number, deltaY: number): void {
+    if (activeCanvasGesture.current !== active) return;
+    const baseGroup = active.baseScene.rootGroups.find((entry) => entry.id === active.groupId);
+    if (baseGroup === undefined || (deltaX === 0 && deltaY === 0)) return;
+    const prepared = updateSceneLayerTransformCommand(active.groupId, {
+      translation: {
+        x: baseGroup.transform.translation.x + deltaX,
+        y: baseGroup.transform.translation.y + deltaY,
+      },
+    }).prepare(active.baseScene);
+    if (prepared.kind !== 'success') {
+      setFeedback(feedbackFrom(prepared.diagnostics));
+      return;
+    }
+    const result = store.promoteInteraction(active.group, prepared.candidate);
+    if (!result.ok) {
+      setFeedback(feedbackFrom(result.diagnostics));
+      return;
+    }
+    active.latestCandidate = prepared.candidate;
+    active.changed = true;
+    setInteractionRevision((revision) => revision + 1);
+    setFeedback(undefined);
   }
 
   function applyCanvasDrag(
@@ -579,32 +655,66 @@ export function useSceneEditor(initialScene?: SceneV03) {
         changed: false,
       };
       setSelectedGroupId(groupId);
+      setIsInteracting(true);
+      setInteractionRevision((revision) => revision + 1);
       return;
     }
 
     const active = activeCanvasGesture.current;
     if (active === undefined || active.groupId !== groupId) return;
-    const baseGroup = active.baseScene.rootGroups.find((entry) => entry.id === groupId);
-    if (baseGroup === undefined) return;
     if (deltaX !== 0 || deltaY !== 0) {
-      const prepared = updateSceneLayerTransformCommand(groupId, {
-        translation: {
-          x: baseGroup.transform.translation.x + deltaX,
-          y: baseGroup.transform.translation.y + deltaY,
-        },
-      }).prepare(active.baseScene);
-      if (prepared.kind !== 'success') {
-        setFeedback(feedbackFrom(prepared.diagnostics));
-        return;
-      }
-      const result = store.promoteInteraction(active.group, prepared.candidate);
-      if (!result.ok) {
-        setFeedback(feedbackFrom(result.diagnostics));
-        return;
-      }
-      active.latestCandidate = prepared.candidate;
-      active.changed = true;
-      setFeedback(undefined);
+      scheduleInteractionMove(() => promoteCanvasMove(active, deltaX, deltaY));
+    }
+    if (phase === 'end') settleCanvasGesture(true);
+  }
+
+  function applyCanvasTransform(
+    groupId: GroupId,
+    phase: 'start' | 'move' | 'end' | 'cancel',
+    patch?: SceneLayerTransformPatch,
+  ): void {
+    if (phase === 'cancel') {
+      settleCanvasGesture(false);
+      return;
+    }
+    if (phase === 'start') {
+      settleCanvasGesture(true);
+      settleBoundaryGesture(true);
+      const baseScene = store.getCurrentRecipe();
+      if (!baseScene.rootGroups.some((entry) => entry.id === groupId)) return;
+      activeCanvasGesture.current = {
+        group: store.beginInteraction('scene-layer-transform'),
+        baseScene,
+        groupId,
+        latestCandidate: baseScene,
+        changed: false,
+      };
+      setSelectedGroupId(groupId);
+      setIsInteracting(true);
+      setInteractionRevision((revision) => revision + 1);
+      return;
+    }
+
+    const active = activeCanvasGesture.current;
+    if (active === undefined || active.groupId !== groupId) return;
+    if (phase === 'move' && patch !== undefined) {
+      scheduleInteractionMove(() => {
+        if (activeCanvasGesture.current !== active) return;
+        const prepared = updateSceneLayerTransformCommand(groupId, patch).prepare(active.baseScene);
+        if (prepared.kind !== 'success') {
+          setFeedback(feedbackFrom(prepared.diagnostics));
+          return;
+        }
+        const result = store.promoteInteraction(active.group, prepared.candidate);
+        if (!result.ok) {
+          setFeedback(feedbackFrom(result.diagnostics));
+          return;
+        }
+        active.latestCandidate = prepared.candidate;
+        active.changed = true;
+        setInteractionRevision((revision) => revision + 1);
+        setFeedback(undefined);
+      });
     }
     if (phase === 'end') settleCanvasGesture(true);
   }
@@ -639,6 +749,8 @@ export function useSceneEditor(initialScene?: SceneV03) {
     persistence: snapshot.persistence,
     restored: boot.restored,
     feedback,
+    isInteracting,
+    interactionRevision,
     selectedGroupId: selectedGroup?.id,
     selectedGroup,
     selectedMaterial,
@@ -664,16 +776,31 @@ export function useSceneEditor(initialScene?: SceneV03) {
               freeformDraft.hoverPoint !== undefined &&
               isNearFreeformStart(freeformDraft.points, freeformDraft.hoverPoint),
           },
-    selectGroup: (groupId: GroupId) => {
+    selectGroupFromCanvas: (groupId: GroupId) => {
       settleCanvasGesture(false);
       settleBoundaryGesture(false);
+      setPinnedGroupId(undefined);
       setSelectedGroupId(groupId);
       const material = firstMaterial(scene.rootGroups.find((group) => group.id === groupId));
       if (material?.id !== boundaryEditMaterialId) discardBoundaryEdit();
     },
+    selectGroupFromSidebar: (groupId: GroupId) => {
+      settleCanvasGesture(false);
+      settleBoundaryGesture(false);
+      setPinnedGroupId(groupId);
+      setSelectedGroupId(groupId);
+      const material = firstMaterial(scene.rootGroups.find((group) => group.id === groupId));
+      if (material?.id !== boundaryEditMaterialId) discardBoundaryEdit();
+    },
+    pinnedGroupId: selectedGroup?.id === pinnedGroupId ? pinnedGroupId : undefined,
+    scaleLocked,
+    setScaleLocked,
+    resizeFromCenter,
+    setResizeFromCenter,
     clearSelection: () => {
       settleCanvasGesture(false);
       settleBoundaryGesture(false);
+      setPinnedGroupId(undefined);
       setSelectedGroupId(undefined);
       discardBoundaryEdit();
     },
@@ -704,6 +831,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
     removeBoundaryVertex,
     applyBoundaryVertexEdit,
     applyCanvasDrag,
+    applyCanvasTransform,
     importScene,
     undo,
     redo,

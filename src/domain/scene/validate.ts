@@ -244,9 +244,9 @@ function checkPoint(
 function checkTransform(context: ValidationContext, value: unknown, path: string): void {
   const transform = checkRecord(context, value, path, 'Group transform must be an object.');
   if (transform === null) return;
-  checkKeys(context, transform, path, ['translation', 'uniformScale', 'rotationDeg']);
+  checkKeys(context, transform, path, ['translation', 'scale', 'rotationDeg']);
   checkPoint(context, transform['translation'], path + '/translation', -2, 3);
-  checkNumber(context, transform['uniformScale'], path + '/uniformScale', 0.05, 4);
+  checkPoint(context, transform['scale'], path + '/scale', 0.05, 4);
   checkNumber(context, transform['rotationDeg'], path + '/rotationDeg', -180, 179.999999);
 }
 
@@ -262,7 +262,7 @@ function checkBoundary(context: ValidationContext, value: unknown, path: string)
       issue.code,
       path + (issue.path === '/' ? '' : issue.path),
       issue.message,
-      'Provide one simple closed Boundary with 3 to 64 normalized vertices.',
+      'Provide one simple closed Boundary with 3 to 64 vertices between -2 and 3.',
     );
   }
 }
@@ -545,7 +545,7 @@ export function validateSceneV03(value: unknown): SceneV03ValidationResult {
       'unsupported-schema-version',
       '/schemaVersion',
       'Scene schemaVersion is not supported.',
-      'Use a v0.3 scene document.',
+      'Use a v0.3.1 scene document.',
     );
   }
   checkId(context, scene['id'], 'scene', '/id');

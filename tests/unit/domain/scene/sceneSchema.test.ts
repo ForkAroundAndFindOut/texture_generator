@@ -24,7 +24,7 @@ function createSceneFixture(): SceneV03 {
       visible: true,
       transform: {
         translation: { x: 0.5, y: 0.5 },
-        uniformScale: 1,
+        scale: { x: 1, y: 1 },
         rotationDeg: 0,
       },
       children: [
@@ -92,7 +92,7 @@ describe('v0.3 scene schema and canonical serialization', () => {
     expect(diagnosticCodes(invalidRatio)).toContain('invalid-artboard-ratio');
 
     const invalidTransform = createSceneFixture();
-    invalidTransform.rootGroups[0]!.transform.uniformScale = 0;
+    invalidTransform.rootGroups[0]!.transform.scale.x = 0;
     expect(diagnosticCodes(invalidTransform)).toContain('out-of-range-number');
 
     const invalidReference = createSceneFixture();
@@ -108,6 +108,24 @@ describe('v0.3 scene schema and canonical serialization', () => {
     expect(diagnosticCodes(cyclic)).toContain('group-cycle');
 
     expect(diagnosticCodes(createDefaultRecipe())).toContain('unsupported-schema-version');
+  });
+
+  it('keeps the 0.3.1 transform format as an explicit breaking import boundary', () => {
+    const legacy = createSceneFixture() as unknown as {
+      schemaVersion: string;
+      rootGroups: Array<{ transform: unknown }>;
+    };
+    legacy.schemaVersion = '0.3.0';
+    legacy.rootGroups[0]!.transform = {
+      translation: { x: 0.5, y: 0.5 },
+      uniformScale: 1,
+      rotationDeg: 0,
+    };
+
+    const codes = diagnosticCodes(legacy);
+    expect(codes).toContain('unsupported-schema-version');
+    expect(codes).toContain('missing-property');
+    expect(codes).toContain('unknown-property');
   });
 
   it('rejects a self-crossing Boundary without accepting a damaged scene', () => {

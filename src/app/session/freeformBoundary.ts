@@ -163,7 +163,7 @@ function localBoundaryForWorldPoints(points: readonly ScenePoint[]): {
         y: 0.5 + (point.y - center.y) / scale,
       })),
     },
-    transform: { translation: center, uniformScale: scale, rotationDeg: 0 },
+    transform: { translation: center, scale: { x: scale, y: scale }, rotationDeg: 0 },
   };
 }
 

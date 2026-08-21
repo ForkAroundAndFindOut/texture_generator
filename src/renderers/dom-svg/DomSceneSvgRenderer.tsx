@@ -28,11 +28,13 @@ export function DomSceneSvgRenderer({
   ir,
   title,
   description,
+  quality,
   className,
 }: DomSceneSvgRendererProps) {
   const model = renderDomSceneSvg(ir, {
     ...(title === undefined ? {} : { title }),
     ...(description === undefined ? {} : { description }),
+    ...(quality === undefined ? {} : { quality }),
   });
   return createElement('div', {
     className,

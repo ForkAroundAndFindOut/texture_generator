@@ -31,8 +31,10 @@ No account, API key, database, or runtime environment variables are required.
 ## Quick start
 
 ```bash
-git clone git@github.com:ForkAroundAndFindOut/texture_generator.git
+git clone https://github.com/ForkAroundAndFindOut/texture_generator.git
 cd texture_generator
+
+# A plain clone follows main, which tracks the latest stable release.
 
 # With nvm/fnm/Volta installed, this uses .nvmrc automatically or explicitly:
 nvm install 24.19.0
@@ -45,6 +47,13 @@ npm run dev
 
 Open the local URL printed by Vite. On Windows, nvm-windows, fnm, Volta, or the official Node.js
 installer can provide the pinned Node version.
+
+To pin an exact release instead of following `main`, clone its tag explicitly:
+
+```bash
+git clone --branch v0.3.1 --depth 1 https://github.com/ForkAroundAndFindOut/texture_generator.git
+cd texture_generator
+```
 
 ## Verification
 
@@ -64,7 +73,9 @@ Actions runs the same checks on every push and pull request.
 Use a feature branch from the current release line, make small commits, and keep generated files
 out of Git. See [CONTRIBUTING.md](./CONTRIBUTING.md) for the branch, test, and release workflow.
 
-The v0.3.0 release is represented by the `v0.3.0` tag. The current v0.3.1 release line is developed
-on `codex/texture-lab-v0.3.1` and released as `v0.3.1`. Future releases should keep this repository
-root, create a new branch, update the package version, and add a new Git tag; old versions remain
-available through Git history rather than duplicate folders.
+The `main` branch tracks the latest stable release and currently points to v0.3.1. The v0.3.1
+release is also represented by the `v0.3.1` tag, while the release line is developed on
+`codex/texture-lab-v0.3.1`. The v0.3.0 release remains available through the `v0.3.0` tag.
+Future releases should keep this repository root, update `main` after review, update the package
+version, and add a new Git tag; old versions remain available through Git history rather than
+duplicate folders.

@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -25,6 +26,7 @@ export type SceneBoundaryEditorProps = Readonly<{
   readonly materialId: string;
   readonly vertices: readonly ScenePoint[];
   readonly selectedVertexIndex?: number;
+  readonly invalidVertexIndex?: number;
 }>;
 
 export type SceneArtboardProps = {
@@ -95,8 +97,18 @@ type TransformDragState = Readonly<{
   scaleLocked: boolean;
 }>;
 
+type BoundaryPointerState = Readonly<{
+  pointerId: number;
+  materialId: string;
+  vertexIndex: number;
+  startX: number;
+  startY: number;
+  dragging: boolean;
+}>;
+
 const DOUBLE_CLICK_DELAY_MS = 600;
 const DOUBLE_CLICK_DISTANCE_PX = 8;
+const BOUNDARY_DRAG_THRESHOLD_PX = 4;
 const MINIMUM_SCALE = 0.05;
 const MAXIMUM_SCALE = 4;
 
@@ -159,6 +171,8 @@ export function SceneArtboard({
   const markupRoot = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | undefined>(undefined);
   const transformDrag = useRef<TransformDragState | undefined>(undefined);
+  const boundaryEditorRoot = useRef<HTMLDivElement>(null);
+  const boundaryPointer = useRef<BoundaryPointerState | undefined>(undefined);
   const freeformClick = useRef<FreeformClickState | undefined>(undefined);
   const [settledInteractionRevision, setSettledInteractionRevision] = useState(-1);
   const draftQuality = isInteracting && settledInteractionRevision !== interactionRevision;
@@ -185,6 +199,37 @@ export function SceneArtboard({
   useEffect(() => {
     if (freeformDraft === undefined) freeformClick.current = undefined;
   }, [freeformDraft]);
+
+  const releaseBoundaryPointer = useCallback((state: BoundaryPointerState): void => {
+    const owner = boundaryEditorRoot.current;
+    boundaryPointer.current = undefined;
+    if (owner?.hasPointerCapture(state.pointerId)) owner.releasePointerCapture(state.pointerId);
+  }, []);
+
+  const cancelActiveBoundaryDrag = useCallback((): boolean => {
+    const state = boundaryPointer.current;
+    if (state === undefined) return false;
+    onBoundaryVertexEdit(state.materialId, state.vertexIndex, 'cancel');
+    releaseBoundaryPointer(state);
+    return true;
+  }, [onBoundaryVertexEdit, releaseBoundaryPointer]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !cancelActiveBoundaryDrag()) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const onWindowBlur = () => {
+      cancelActiveBoundaryDrag();
+    };
+    globalThis.addEventListener('keydown', onKeyDown, true);
+    globalThis.addEventListener('blur', onWindowBlur);
+    return () => {
+      globalThis.removeEventListener('keydown', onKeyDown, true);
+      globalThis.removeEventListener('blur', onWindowBlur);
+    };
+  }, [cancelActiveBoundaryDrag]);
 
   useEffect(() => {
     if (!isInteracting) return undefined;
@@ -630,7 +675,7 @@ export function SceneArtboard({
               }
               if (boundaryEditor !== undefined && event.key === 'Escape') {
                 event.preventDefault();
-                onCancelBoundaryEdit();
+                if (!cancelActiveBoundaryDrag()) onCancelBoundaryEdit();
               }
             }}
           >
@@ -777,13 +822,56 @@ export function SceneArtboard({
           boundaryMaterial === undefined ||
           freeformDraft !== undefined ? null : (
             <div
+              ref={boundaryEditorRoot}
               className="scene-artboard__boundary-editor"
               aria-label="Boundary editing controls"
               role="group"
+              tabIndex={-1}
               onKeyDown={(event) => {
                 if (event.key !== 'Escape') return;
                 event.preventDefault();
+                if (cancelActiveBoundaryDrag()) {
+                  event.stopPropagation();
+                  return;
+                }
                 onCancelBoundaryEdit();
+              }}
+              onPointerMove={(event) => {
+                const state = boundaryPointer.current;
+                if (state === undefined || state.pointerId !== event.pointerId) return;
+                const point = boundaryPointFromEvent(event);
+                if (point === undefined) return;
+                if (!state.dragging) {
+                  const distance = Math.hypot(
+                    event.clientX - state.startX,
+                    event.clientY - state.startY,
+                  );
+                  if (distance < BOUNDARY_DRAG_THRESHOLD_PX) return;
+                  boundaryPointer.current = { ...state, dragging: true };
+                }
+                onBoundaryVertexEdit(state.materialId, state.vertexIndex, 'move', point);
+              }}
+              onPointerUp={(event) => {
+                const state = boundaryPointer.current;
+                if (state === undefined || state.pointerId !== event.pointerId) return;
+                const point = boundaryPointFromEvent(event);
+                if (state.dragging && point !== undefined) {
+                  onBoundaryVertexEdit(state.materialId, state.vertexIndex, 'move', point);
+                }
+                onBoundaryVertexEdit(state.materialId, state.vertexIndex, 'end');
+                releaseBoundaryPointer(state);
+              }}
+              onPointerCancel={(event) => {
+                const state = boundaryPointer.current;
+                if (state === undefined || state.pointerId !== event.pointerId) return;
+                onBoundaryVertexEdit(state.materialId, state.vertexIndex, 'cancel');
+                releaseBoundaryPointer(state);
+              }}
+              onLostPointerCapture={(event) => {
+                const state = boundaryPointer.current;
+                if (state === undefined || state.pointerId !== event.pointerId) return;
+                onBoundaryVertexEdit(state.materialId, state.vertexIndex, 'cancel');
+                boundaryPointer.current = undefined;
               }}
               onPointerLeave={() => setHoveredBoundarySegmentIndex(undefined)}
             >
@@ -810,33 +898,29 @@ export function SceneArtboard({
               </svg>
               {boundaryEditorPoints.map(({ local, world }, index) => (
                 <button
-                  key={`vertex-${index}-${local.x}-${local.y}`}
+                  key={`vertex-${index}`}
                   type="button"
-                  className={`scene-artboard__boundary-handle${boundaryEditor.selectedVertexIndex === index ? ' is-selected' : ''}`}
+                  className={`scene-artboard__boundary-handle${boundaryEditor.selectedVertexIndex === index ? ' is-selected' : ''}${boundaryEditor.invalidVertexIndex === index ? ' is-invalid' : ''}`}
                   aria-label={`Boundary corner ${index + 1}`}
                   style={worldPointInArtboard(world)}
                   onPointerDown={(event) => {
+                    if (event.button !== 0) return;
+                    const owner = boundaryEditorRoot.current;
+                    if (owner === null) return;
                     event.preventDefault();
                     event.stopPropagation();
-                    event.currentTarget.setPointerCapture(event.pointerId);
+                    owner.focus({ preventScroll: true });
+                    owner.setPointerCapture(event.pointerId);
+                    boundaryPointer.current = {
+                      pointerId: event.pointerId,
+                      materialId: boundaryEditor.materialId,
+                      vertexIndex: index,
+                      startX: event.clientX,
+                      startY: event.clientY,
+                      dragging: false,
+                    };
                     onBoundaryVertexEdit(boundaryEditor.materialId, index, 'start');
                   }}
-                  onPointerMove={(event) => {
-                    const point = boundaryPointFromEvent(event);
-                    if (point !== undefined) {
-                      onBoundaryVertexEdit(boundaryEditor.materialId, index, 'move', point);
-                    }
-                  }}
-                  onPointerUp={(event) => {
-                    event.preventDefault();
-                    onBoundaryVertexEdit(boundaryEditor.materialId, index, 'end');
-                    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                      event.currentTarget.releasePointerCapture(event.pointerId);
-                    }
-                  }}
-                  onPointerCancel={() =>
-                    onBoundaryVertexEdit(boundaryEditor.materialId, index, 'cancel')
-                  }
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();

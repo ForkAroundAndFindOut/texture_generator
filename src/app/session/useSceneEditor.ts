@@ -64,6 +64,7 @@ type ActiveBoundaryGesture = {
   readonly materialId: string;
   readonly vertexIndex: number;
   latestCandidate: SceneV03;
+  pendingCandidate?: SceneV03;
   changed: boolean;
 };
 
@@ -192,6 +193,9 @@ export function useSceneEditor(initialScene?: SceneV03) {
   const [selectedBoundaryVertexIndex, setSelectedBoundaryVertexIndex] = useState<
     number | undefined
   >(undefined);
+  const [invalidBoundaryVertexIndex, setInvalidBoundaryVertexIndex] = useState<number | undefined>(
+    undefined,
+  );
 
   useEffect(() => {
     if (disposeTimer.current !== undefined) globalThis.clearTimeout(disposeTimer.current);
@@ -230,6 +234,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
   function discardBoundaryEdit(): void {
     setBoundaryEditMaterialId(undefined);
     setSelectedBoundaryVertexIndex(undefined);
+    setInvalidBoundaryVertexIndex(undefined);
   }
 
   function cancelScheduledInteractionMove(): void {
@@ -283,6 +288,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
         : store.cancelInteraction(active.group);
     activeBoundaryGesture.current = undefined;
     setIsInteracting(false);
+    setInvalidBoundaryVertexIndex(undefined);
     if (!result.ok) setFeedback(feedbackFrom(result.diagnostics));
   }
 
@@ -530,8 +536,22 @@ export function useSceneEditor(initialScene?: SceneV03) {
     }
   }
 
-  function promoteBoundaryVertexMove(active: ActiveBoundaryGesture, point: ScenePoint): void {
+  function promoteBoundaryVertexMove(active: ActiveBoundaryGesture): void {
     if (activeBoundaryGesture.current !== active) return;
+    const candidate = active.pendingCandidate;
+    if (candidate === undefined) return;
+    delete active.pendingCandidate;
+    const result = store.promoteInteraction(active.group, candidate);
+    if (!result.ok) {
+      setFeedback(feedbackFrom(result.diagnostics));
+      return;
+    }
+    active.latestCandidate = candidate;
+    active.changed = true;
+    setInteractionRevision((revision) => revision + 1);
+  }
+
+  function queueBoundaryVertexMove(active: ActiveBoundaryGesture, point: ScenePoint): void {
     const material = materialInScene(active.baseScene, active.materialId);
     if (material === undefined) return;
     const vertices = material.geometry.boundary.vertices.map((vertex, index) =>
@@ -541,18 +561,12 @@ export function useSceneEditor(initialScene?: SceneV03) {
       active.baseScene,
     );
     if (prepared.kind !== 'success') {
-      setFeedback(feedbackFrom(prepared.diagnostics));
+      setInvalidBoundaryVertexIndex(active.vertexIndex);
       return;
     }
-    const result = store.promoteInteraction(active.group, prepared.candidate);
-    if (!result.ok) {
-      setFeedback(feedbackFrom(result.diagnostics));
-      return;
-    }
-    active.latestCandidate = prepared.candidate;
-    active.changed = true;
-    setInteractionRevision((revision) => revision + 1);
-    setFeedback(undefined);
+    active.pendingCandidate = prepared.candidate;
+    setInvalidBoundaryVertexIndex(undefined);
+    scheduleInteractionMove(() => promoteBoundaryVertexMove(active));
   }
 
   function applyBoundaryVertexEdit(
@@ -587,6 +601,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
         changed: false,
       };
       setSelectedBoundaryVertexIndex(vertexIndex);
+      setInvalidBoundaryVertexIndex(undefined);
       setIsInteracting(true);
       setInteractionRevision((revision) => revision + 1);
       return;
@@ -601,7 +616,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
       return;
     }
     if (phase === 'move' && point !== undefined) {
-      scheduleInteractionMove(() => promoteBoundaryVertexMove(active, point));
+      queueBoundaryVertexMove(active, point);
     }
     if (phase === 'end') settleBoundaryGesture(true);
   }
@@ -762,6 +777,9 @@ export function useSceneEditor(initialScene?: SceneV03) {
             ...(selectedBoundaryVertexIndex === undefined
               ? {}
               : { selectedVertexIndex: selectedBoundaryVertexIndex }),
+            ...(invalidBoundaryVertexIndex === undefined
+              ? {}
+              : { invalidVertexIndex: invalidBoundaryVertexIndex }),
           }
         : undefined,
     freeformDraft:

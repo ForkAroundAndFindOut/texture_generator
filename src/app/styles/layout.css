@@ -1546,6 +1546,14 @@ summary:focus-visible {
     0 0 18px rgb(253 224 71 / 82%);
 }
 
+.scene-artboard__boundary-handle.is-invalid {
+  border-color: #fecdd3;
+  background: #e11d48;
+  box-shadow:
+    0 0 0 3px rgb(15 23 42 / 70%),
+    0 0 18px rgb(251 113 133 / 88%);
+}
+
 .scene-artboard__boundary-midpoint {
   width: 0.86rem;
   height: 0.86rem;

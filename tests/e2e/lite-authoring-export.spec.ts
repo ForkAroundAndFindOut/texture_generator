@@ -13,6 +13,15 @@ let staticServerBaseUrl = 'http://127.0.0.1:4173';
 const layerRows = (page: Page) => page.locator('ol[aria-label="Composition layers"] > li');
 const compositionCanvas = (page: Page) => page.getByRole('region', { name: 'Composition canvas' });
 
+async function waitForAnimationFrames(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolveFrame) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame())),
+      ),
+  );
+}
+
 async function expectFreshResponsiveEmbed(
   page: Page,
   css: string,
@@ -444,26 +453,94 @@ test('v0.3 supports remix, reframe, layered selection, and safe Boundary editing
   const corner = page.getByRole('button', { name: 'Boundary corner 2' });
   const cornerBounds = await corner.boundingBox();
   if (cornerBounds === null) throw new Error('Boundary corner is unavailable for dragging.');
-  const beforeDrag = await compositionCanvas(page).screenshot({
-    animations: 'disabled',
-    caret: 'hide',
-  });
-  await page.mouse.move(
-    cornerBounds.x + cornerBounds.width / 2,
-    cornerBounds.y + cornerBounds.height / 2,
-  );
+  const dragStart = {
+    x: cornerBounds.x + cornerBounds.width / 2,
+    y: cornerBounds.y + cornerBounds.height / 2,
+  };
+  await page.mouse.move(dragStart.x, dragStart.y);
   await page.mouse.down();
-  await page.mouse.move(
-    cornerBounds.x + cornerBounds.width / 2 + 18,
-    cornerBounds.y + cornerBounds.height / 2 + 12,
-    { steps: 3 },
-  );
+  await page.mouse.move(dragStart.x + 6, dragStart.y + 4, { steps: 1 });
+  await expect
+    .poll(async () => {
+      const bounds = await corner.boundingBox();
+      return bounds === null ? -1 : bounds.x + bounds.width / 2;
+    })
+    .toBeGreaterThan(dragStart.x + 2);
+  // The second move deliberately leaves the original point target after React
+  // has rendered the first move. Stable capture must keep this gesture alive.
+  await page.mouse.move(dragStart.x + 18, dragStart.y + 12, { steps: 1 });
   await page.mouse.up();
-  const afterDrag = await compositionCanvas(page).screenshot({
-    animations: 'disabled',
-    caret: 'hide',
-  });
-  expect(afterDrag.equals(beforeDrag)).toBe(false);
+  await waitForAnimationFrames(page);
+  const plantedBounds = await corner.boundingBox();
+  if (plantedBounds === null) throw new Error('Dragged Boundary corner is unavailable.');
+  const planted = {
+    x: plantedBounds.x + plantedBounds.width / 2,
+    y: plantedBounds.y + plantedBounds.height / 2,
+  };
+  const plantedStyle = await corner.getAttribute('style');
+  if (plantedStyle === null) throw new Error('Dragged Boundary corner has no position style.');
+  expect(Math.abs(planted.x - (dragStart.x + 18))).toBeLessThan(3);
+  expect(Math.abs(planted.y - (dragStart.y + 12))).toBeLessThan(3);
+
+  // Movement below the threshold remains selection-only.
+  await page.mouse.move(planted.x, planted.y);
+  await page.mouse.down();
+  await page.mouse.move(planted.x + 2, planted.y + 1, { steps: 1 });
+  await page.mouse.up();
+  await waitForAnimationFrames(page);
+  await expect(corner).toHaveAttribute('style', plantedStyle);
+  const afterThresholdBounds = await corner.boundingBox();
+  if (afterThresholdBounds === null) throw new Error('Threshold-check corner is unavailable.');
+  const lastValid = {
+    x: afterThresholdBounds.x + afterThresholdBounds.width / 2,
+    y: afterThresholdBounds.y + afterThresholdBounds.height / 2,
+  };
+
+  // An invalid crossing keeps the latest valid point planted and shows local feedback.
+  const invalidTarget = {
+    x: canvasBounds.x + canvasBounds.width * 0.9,
+    y: canvasBounds.y + canvasBounds.height * 0.8,
+  };
+  await page.mouse.move(lastValid.x, lastValid.y);
+  await page.mouse.down();
+  await page.mouse.move(invalidTarget.x, invalidTarget.y, { steps: 1 });
+  await expect(corner).toHaveClass(/is-invalid/u);
+  const stalledBounds = await corner.boundingBox();
+  if (stalledBounds === null) throw new Error('Invalid-drag Boundary corner is unavailable.');
+  const stalled = {
+    x: stalledBounds.x + stalledBounds.width / 2,
+    y: stalledBounds.y + stalledBounds.height / 2,
+  };
+  expect(Math.hypot(stalled.x - invalidTarget.x, stalled.y - invalidTarget.y)).toBeGreaterThan(80);
+  await page.mouse.move(lastValid.x + 6, lastValid.y + 4, { steps: 1 });
+  await expect(corner).not.toHaveClass(/is-invalid/u);
+  await page.mouse.up();
+  await waitForAnimationFrames(page);
+
+  // Escape cancels an active drag without leaving Edit Boundary mode.
+  const beforeEscapeBounds = await corner.boundingBox();
+  if (beforeEscapeBounds === null) throw new Error('Escape-check Boundary corner is unavailable.');
+  const beforeEscape = {
+    x: beforeEscapeBounds.x + beforeEscapeBounds.width / 2,
+    y: beforeEscapeBounds.y + beforeEscapeBounds.height / 2,
+  };
+  const beforeEscapeStyle = await corner.getAttribute('style');
+  if (beforeEscapeStyle === null)
+    throw new Error('Escape-check Boundary corner has no position style.');
+  await page.mouse.move(beforeEscape.x, beforeEscape.y);
+  await page.mouse.down();
+  await page.mouse.move(beforeEscape.x + 12, beforeEscape.y + 8, { steps: 1 });
+  await expect
+    .poll(async () => {
+      const bounds = await corner.boundingBox();
+      return bounds === null ? -1 : bounds.x + bounds.width / 2;
+    })
+    .toBeGreaterThan(beforeEscape.x + 4);
+  await page.keyboard.press('Escape');
+  await waitForAnimationFrames(page);
+  await expect(corner).toHaveAttribute('style', beforeEscapeStyle);
+  await page.mouse.up();
+  await expect(page.getByRole('button', { name: 'Finish editing' })).toBeVisible();
   await corner.click();
   await page.getByRole('button', { name: 'Remove selected Boundary point' }).click();
   await expect(corners).toHaveCount(3);

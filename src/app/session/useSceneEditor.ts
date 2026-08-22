@@ -12,10 +12,13 @@ import {
 import {
   addSceneLayerAtTransformCommand,
   addSceneLayerCommand,
+  addScenePaletteEntryCommand,
   createSceneCommandContext,
   createSceneEditorStore,
+  deleteScenePaletteEntryCommand,
   deleteSceneLayerCommand,
   duplicateSceneLayerCommand,
+  importScenePaletteCommand,
   readStoredSceneV03,
   remixScenePaletteCommand,
   reframeSceneContentCommand,
@@ -33,6 +36,8 @@ import {
   type SceneCommandDiagnostic,
   type SceneLayerTransformPatch,
   type SceneMaterialPatch,
+  type PaletteImportEntry,
+  type PaletteImportMode,
   type ScenePaletteEntryPatch,
   type SceneStoragePort,
 } from '../../editor';
@@ -363,6 +368,20 @@ export function useSceneEditor(initialScene?: SceneV03) {
 
   function updatePaletteEntry(paletteId: string, patch: ScenePaletteEntryPatch): void {
     commit(updateScenePaletteEntryCommand(paletteId, patch));
+  }
+
+  function addPaletteEntry(): void {
+    commit(addScenePaletteEntryCommand(createSceneCommandContext(sequence.current)));
+  }
+
+  function deletePaletteEntry(paletteId: string): void {
+    commit(deleteScenePaletteEntryCommand(paletteId));
+  }
+
+  function importPalette(entries: readonly PaletteImportEntry[], mode: PaletteImportMode): boolean {
+    return commit(
+      importScenePaletteCommand(entries, mode, createSceneCommandContext(sequence.current)),
+    );
   }
 
   function remixPalette(): void {
@@ -836,6 +855,9 @@ export function useSceneEditor(initialScene?: SceneV03) {
     reframeVisibleContent,
     updateBackground,
     updatePaletteEntry,
+    addPaletteEntry,
+    deletePaletteEntry,
+    importPalette,
     remixPalette,
     beginFreeform,
     cancelFreeform,

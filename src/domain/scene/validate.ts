@@ -12,6 +12,8 @@ import {
 } from './types';
 
 const COLOR_PATTERN = /^#[0-9A-F]{6}$/u;
+const MIN_PALETTE_ENTRIES = 1;
+const MAX_PALETTE_ENTRIES = 32;
 const MAX_NAME_LENGTH = 80;
 const MAX_GROUP_DEPTH = 64;
 const MAX_UINT32 = 4_294_967_295;
@@ -496,19 +498,20 @@ function checkPalette(context: ValidationContext, value: unknown): void {
       'invalid-palette',
       '/palette',
       'Palette must be an array.',
-      'Provide 4 to 8 named colors.',
+      'Provide 1 to 32 named colors.',
     );
     return;
   }
-  if (value.length < 4 || value.length > 8) {
+  if (value.length < MIN_PALETTE_ENTRIES || value.length > MAX_PALETTE_ENTRIES) {
     add(
       context,
       'invalid-palette-count',
       '/palette',
-      'V0.3 palettes require 4 to 8 colors.',
-      'Provide 4 to 8 named colors.',
+      'V0.3 palettes require 1 to 32 colors.',
+      'Provide 1 to 32 named colors.',
     );
   }
+  const names = new Set<string>();
   value.forEach((entry, index) => {
     const path = '/palette/' + index;
     const paletteEntry = checkRecord(context, entry, path, 'Palette entry must be an object.');
@@ -517,6 +520,19 @@ function checkPalette(context: ValidationContext, value: unknown): void {
     const id = checkId(context, paletteEntry['id'], 'palette', path + '/id');
     if (id !== null) context.paletteIds.add(id);
     checkName(context, paletteEntry['name'], path + '/name');
+    if (typeof paletteEntry['name'] === 'string') {
+      const name = paletteEntry['name'].trim().toLocaleLowerCase();
+      if (names.has(name)) {
+        add(
+          context,
+          'duplicate-palette-name',
+          path + '/name',
+          'Palette names must be unique, ignoring letter case.',
+          'Give each palette entry a different name.',
+        );
+      }
+      names.add(name);
+    }
     checkColor(context, paletteEntry['color'], path + '/color');
   });
 }

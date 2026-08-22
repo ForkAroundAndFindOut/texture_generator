@@ -143,7 +143,7 @@ describe('v0.3 scene schema and canonical serialization', () => {
 
   it('never serializes a document that fails validation', () => {
     const invalid = createSceneFixture();
-    invalid.palette.pop();
+    invalid.palette.splice(0, invalid.palette.length);
 
     expect(() => canonicalSceneV03String(invalid)).toThrow(SceneV03ValidationError);
   });

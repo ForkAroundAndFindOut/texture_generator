@@ -115,10 +115,14 @@ export function App({ initialScene, className }: AppProps) {
             }
           />
           <ScenePalettePanel
+            scene={editor.scene}
             background={editor.scene.background}
             palette={editor.scene.palette}
             onBackgroundChange={editor.updateBackground}
             onPaletteChange={editor.updatePaletteEntry}
+            onAddPaletteEntry={editor.addPaletteEntry}
+            onDeletePaletteEntry={editor.deletePaletteEntry}
+            onImportPalette={editor.importPalette}
             onRemix={editor.remixPalette}
           />
           <SceneExportPanel scene={editor.scene} onImportScene={editor.importScene} />

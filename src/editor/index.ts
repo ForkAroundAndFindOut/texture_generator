@@ -53,11 +53,14 @@ export type {
 export {
   addSceneLayerAtTransformCommand,
   addSceneLayerCommand,
+  addScenePaletteEntryCommand,
   createSceneCommandContext,
   createSceneEditorStore,
   createSceneV03CachePort,
+  deleteScenePaletteEntryCommand,
   deleteSceneLayerCommand,
   duplicateSceneLayerCommand,
+  importScenePaletteCommand,
   reframeSceneContentCommand,
   remixScenePaletteCommand,
   readStoredSceneV03,
@@ -77,6 +80,22 @@ export {
   updateSceneMaterialBoundaryCommand,
   updateScenePaletteEntryCommand,
   writeStoredSceneV03,
+} from './scene';
+export {
+  buildPaletteImportPreview,
+  createPaletteFile,
+  parsePaletteFile,
+  MAX_SCENE_PALETTE_ENTRIES,
+  PALETTE_FILE_FORMAT,
+  PALETTE_FILE_MAX_BYTES,
+  PALETTE_FILE_VERSION,
+} from './scene';
+export type {
+  PaletteImportEntry,
+  PaletteImportIssue,
+  PaletteImportMode,
+  PaletteImportParseResult,
+  PaletteImportPreview,
 } from './scene';
 export type {
   CreateSceneEditorStoreOptions,

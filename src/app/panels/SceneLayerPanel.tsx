@@ -98,12 +98,13 @@ export function SceneLayerPanel({
                       maxLength={80}
                       aria-label={`Layer name ${group.name}`}
                       onClick={(event) => event.stopPropagation()}
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
                         setDraftNames((current) => ({
                           ...current,
-                          [group.id]: event.currentTarget.value,
-                        }))
-                      }
+                          [group.id]: value,
+                        }));
+                      }}
                       onBlur={() => commitName(group)}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter') event.currentTarget.blur();

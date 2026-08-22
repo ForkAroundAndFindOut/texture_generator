@@ -53,6 +53,9 @@ export {
 
 export { DEFAULT_RECIPE, createDefaultRecipe } from './recipe/defaultRecipe';
 
+export { parseSceneColor, rgbToSceneColor, sceneColorToRgb } from './color/sceneColor';
+export type { SceneColorParseResult, SceneRgb } from './color/sceneColor';
+
 export type { Sha256Port } from './recipe/hash';
 export { hashRecipe, hashRecipeSync, sha256Hex, sha256HexSync } from './recipe/hash';
 

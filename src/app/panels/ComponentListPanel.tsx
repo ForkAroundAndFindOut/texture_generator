@@ -174,12 +174,13 @@ export function ComponentListPanel({
                       maxLength={80}
                       disabled={disabled || onRenameComponent === undefined}
                       onClick={(event) => event.stopPropagation()}
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
                         setNameDrafts((current) => ({
                           ...current,
-                          [component.id]: event.currentTarget.value,
-                        }))
-                      }
+                          [component.id]: value,
+                        }));
+                      }}
                       onBlur={() => commitName(component)}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter') event.currentTarget.blur();

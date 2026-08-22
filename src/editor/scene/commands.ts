@@ -16,6 +16,7 @@ import {
   isSceneV03,
   isSceneV03Id,
   normalizeSceneV03,
+  parseSceneColor,
   sceneV03IdFromBytes,
   validateBoundary,
   validateSceneV03,
@@ -42,6 +43,11 @@ import {
 } from '../../domain';
 import { cloneRecipe, type CandidateResult, type DesignCommand } from '../state/commands';
 import { compileSceneRenderIR, SCENE_WORLD_SIZE, transformSceneRenderPoint } from '../../renderers';
+import {
+  MAX_SCENE_PALETTE_ENTRIES,
+  type PaletteImportEntry,
+  type PaletteImportMode,
+} from './palette';
 
 export type SceneCommandDiagnostic = SceneV03ValidationDiagnostic & {
   readonly recovery: string;
@@ -85,7 +91,6 @@ export type SceneMaterialPatch = {
 const ID_BYTES = 16;
 const MAX_ID_ALLOCATION_ATTEMPTS = 64;
 const MAX_NAME_LENGTH = 80;
-const COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/u;
 
 /** Empty breathing room retained around content by the explicit Reframe action. */
 export const SCENE_REFRAME_SAFE_PADDING = 0.08;
@@ -216,15 +221,22 @@ function normalizedColor(
   value: string,
   path: string,
 ): CanonicalSceneColor | SceneCommandDiagnostic {
-  if (!COLOR_PATTERN.test(value)) {
-    return diagnostic(
-      'invalid-color',
-      path,
-      'Colors must use a six-digit hex value such as #5B8CFF.',
-      'Enter a six-digit hex color.',
-    );
+  const parsed = parseSceneColor(value);
+  if (parsed.kind === 'invalid') {
+    return diagnostic('invalid-color', path, parsed.message, 'Enter a six-digit hex or RGB color.');
   }
-  return value.toUpperCase();
+  return parsed.color;
+}
+
+function hasDuplicatePaletteName(
+  palette: readonly ScenePaletteEntry[],
+  name: string,
+  exceptId?: PaletteEntryId,
+): boolean {
+  const normalized = name.toLocaleLowerCase();
+  return palette.some(
+    (entry) => entry.id !== exceptId && entry.name.toLocaleLowerCase() === normalized,
+  );
 }
 
 function finalize(
@@ -659,6 +671,16 @@ export function updateScenePaletteEntryCommand(
         ? existing.name
         : normalizedName(patch.name, '/palette/' + index + '/name');
     if (isDiagnostic(name)) return failure(name);
+    if (hasDuplicatePaletteName(current.palette, name, paletteId)) {
+      return failure(
+        diagnostic(
+          'duplicate-palette-name',
+          '/palette/' + index + '/name',
+          'Palette names must be unique, ignoring letter case.',
+          'Choose a different palette name.',
+        ),
+      );
+    }
     const color =
       patch.color === undefined
         ? existing.color
@@ -670,6 +692,208 @@ export function updateScenePaletteEntryCommand(
         : cloneRecipe(entry),
     );
     return finalize({ ...cloneRecipe(current), palette }, 'Update palette color');
+  });
+}
+
+/** Adds one white palette entry without exceeding the bounded palette model. */
+export function addScenePaletteEntryCommand(
+  context: SceneCommandContext,
+): DesignCommand<SceneV03, SceneCommandDiagnostic> {
+  return command('scene-palette-add', 'Add palette color', (current) => {
+    if (current.palette.length >= MAX_SCENE_PALETTE_ENTRIES) {
+      return failure(
+        diagnostic(
+          'palette-capacity',
+          '/palette',
+          'The palette already contains the maximum of 32 entries.',
+          'Delete an existing entry before adding another.',
+        ),
+      );
+    }
+    const names = new Set(current.palette.map((entry) => entry.name.toLocaleLowerCase()));
+    const name = (() => {
+      let index = 1;
+      while (names.has(`custom ${index}`)) index += 1;
+      return `Custom ${index}`;
+    })();
+    const id = allocateId(current, context, 'palette');
+    if (isDiagnostic(id)) return failure(id);
+    const palette = [
+      ...current.palette,
+      { id, name, color: '#FFFFFF' } satisfies ScenePaletteEntry,
+    ];
+    return finalize({ ...cloneRecipe(current), palette }, 'Add palette color');
+  });
+}
+
+function localizePaletteReferences(
+  node: SceneNode,
+  colors: ReadonlyMap<string, CanonicalSceneColor>,
+  targetId?: PaletteEntryId,
+): { readonly node: SceneNode; readonly count: number } {
+  if (node.kind === 'group') {
+    let count = 0;
+    const children = node.children.map((child) => {
+      const localized = localizePaletteReferences(child, colors, targetId);
+      count += localized.count;
+      return localized.node;
+    });
+    return { node: { ...cloneRecipe(node), children }, count };
+  }
+  if (
+    node.fill.kind !== 'palette' ||
+    (targetId !== undefined && node.fill.paletteId !== targetId)
+  ) {
+    return { node: cloneRecipe(node), count: 0 };
+  }
+  const color = colors.get(node.fill.paletteId);
+  if (color === undefined) return { node: cloneRecipe(node), count: 0 };
+  return {
+    node: { ...cloneRecipe(node), fill: { kind: 'local', color } },
+    count: 1,
+  };
+}
+
+/** Deletes a palette entry and detaches every supported reference atomically. */
+export function deleteScenePaletteEntryCommand(
+  paletteId: PaletteEntryId,
+): DesignCommand<SceneV03, SceneCommandDiagnostic> {
+  return command('scene-palette-delete', 'Delete palette color', (current) => {
+    if (current.palette.length <= 1) {
+      return failure(
+        diagnostic(
+          'palette-minimum',
+          '/palette',
+          'The palette must keep at least one entry.',
+          'Add another palette entry before deleting this one.',
+        ),
+      );
+    }
+    const target = current.palette.find((entry) => entry.id === paletteId);
+    if (target === undefined) {
+      return failure(
+        diagnostic(
+          'unknown-palette-target',
+          '/palette',
+          'The selected palette color no longer exists.',
+        ),
+      );
+    }
+    const colors = new Map(current.palette.map((entry) => [entry.id, entry.color] as const));
+    const rootGroups = current.rootGroups.map(
+      (group) => localizePaletteReferences(group, colors, paletteId).node as SceneGroup,
+    );
+    const palette = current.palette.filter((entry) => entry.id !== paletteId).map(cloneRecipe);
+    return finalize({ ...cloneRecipe(current), palette, rootGroups }, `Delete ${target.name}`);
+  });
+}
+
+function normalizedImportEntries(
+  entries: readonly PaletteImportEntry[],
+): PaletteImportEntry[] | SceneCommandDiagnostic {
+  const names = new Set<string>();
+  const normalized: PaletteImportEntry[] = [];
+  for (const [index, entry] of entries.entries()) {
+    const name = normalizedName(entry.name, `/palette/${index}/name`);
+    if (isDiagnostic(name)) return name;
+    const key = name.toLocaleLowerCase();
+    if (names.has(key)) {
+      return diagnostic(
+        'duplicate-palette-name',
+        `/palette/${index}/name`,
+        'Palette names must be unique, ignoring letter case.',
+        'Correct the import preview before applying it.',
+      );
+    }
+    const color = normalizedColor(entry.color, `/palette/${index}/color`);
+    if (isDiagnostic(color)) return color;
+    names.add(key);
+    normalized.push({ ...entry, name, color });
+  }
+  return normalized;
+}
+
+/** Applies only the preview-approved subset as one scene transaction. */
+export function importScenePaletteCommand(
+  entries: readonly PaletteImportEntry[],
+  mode: PaletteImportMode,
+  context: SceneCommandContext,
+): DesignCommand<SceneV03, SceneCommandDiagnostic> {
+  return command('scene-palette-import', 'Import palette', (current) => {
+    if (!['append', 'overwrite', 'clear'].includes(mode)) {
+      return failure(
+        diagnostic(
+          'invalid-palette-import-mode',
+          '/palette',
+          'Palette import mode is unsupported.',
+        ),
+      );
+    }
+    const normalized = normalizedImportEntries(entries);
+    if (isDiagnostic(normalized)) return failure(normalized);
+    if (normalized.length === 0) {
+      return failure(
+        diagnostic(
+          'empty-palette-import',
+          '/palette',
+          'The import contains no valid palette entries.',
+          'Correct the import preview and try again.',
+        ),
+      );
+    }
+    if (
+      mode === 'append' &&
+      current.palette.length + normalized.length > MAX_SCENE_PALETTE_ENTRIES
+    ) {
+      return failure(
+        diagnostic(
+          'palette-capacity',
+          '/palette',
+          'The approved import exceeds the 32-entry palette capacity.',
+        ),
+      );
+    }
+    if (mode === 'overwrite' && normalized.length > MAX_SCENE_PALETTE_ENTRIES) {
+      return failure(
+        diagnostic(
+          'palette-capacity',
+          '/palette',
+          'The approved import exceeds the 32-entry palette capacity.',
+        ),
+      );
+    }
+
+    const usedIds = allSceneIds(current);
+    let rootGroups = current.rootGroups.map(cloneRecipe);
+    let palette: ScenePaletteEntry[];
+    if (mode === 'clear') {
+      const colors = new Map(current.palette.map((entry) => [entry.id, entry.color] as const));
+      rootGroups = rootGroups.map(
+        (group) => localizePaletteReferences(group, colors).node as typeof group,
+      );
+      palette = [];
+    } else {
+      palette = current.palette.map(cloneRecipe);
+    }
+    for (const [index, entry] of normalized.entries()) {
+      if (mode !== 'clear' && mode === 'overwrite' && index < palette.length) {
+        palette[index] = { ...palette[index]!, name: entry.name, color: entry.color };
+        continue;
+      }
+      const id = allocateId(current, context, 'palette', usedIds);
+      if (isDiagnostic(id)) return failure(id);
+      palette.push({ id, name: entry.name, color: entry.color });
+    }
+    if (palette.length < 1 || palette.length > MAX_SCENE_PALETTE_ENTRIES) {
+      return failure(
+        diagnostic(
+          'palette-capacity',
+          '/palette',
+          'The resulting palette must contain 1–32 entries.',
+        ),
+      );
+    }
+    return finalize({ ...cloneRecipe(current), palette, rootGroups }, 'Import palette');
   });
 }
 

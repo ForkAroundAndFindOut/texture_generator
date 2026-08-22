@@ -250,7 +250,7 @@ test('v0.3 authors a portable art composition without rasterizing it', async ({ 
   await expect(rows).toHaveCount(beforeDoubleClickBoundary + 1);
   await expect(page.getByLabel('Layer inspector')).toContainText('Freeform Boundary');
 
-  await page.getByRole('button', { name: 'Export' }).focus();
+  await page.getByRole('button', { name: 'Export', exact: true }).focus();
   await page.keyboard.press('Enter');
   const exportPanel = page.getByRole('region', { name: 'Portable export' });
   await expect(exportPanel).toBeFocused();
@@ -606,4 +606,80 @@ test('v0.3 starter gallery produces six distinct visible compositions', async ({
       scale: 'css',
     });
   }
+});
+
+test('v0.3.3 edits, exports, previews, and imports palettes without rename crashes', async ({
+  page,
+}) => {
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text());
+  });
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+
+  await page.goto('/', { waitUntil: 'networkidle' });
+  const palette = page.getByRole('region', { name: 'Canvas & palette' });
+  const initialEntries = await palette.locator('.scene-palette-panel__entry').count();
+  await palette.getByRole('button', { name: 'Add palette entry' }).click();
+  await expect(palette.locator('.scene-palette-panel__entry')).toHaveCount(initialEntries + 1);
+
+  const addedName = palette.getByLabel('Custom 1 palette name');
+  await addedName.fill('Coral');
+  await addedName.blur();
+  const red = palette.getByLabel('Coral R value');
+  const green = palette.getByLabel('Coral G value');
+  const blue = palette.getByLabel('Coral B value');
+  await red.fill('255');
+  await green.fill('99');
+  await blue.fill('71');
+  await expect(blue).toHaveValue('71');
+  await blue.blur();
+  await expect(palette.getByLabel('Coral hex color')).toHaveValue('#FF6347');
+
+  const downloadEvent = page.waitForEvent('download');
+  await palette.getByRole('button', { name: 'Export palette JSON' }).click();
+  const download = await downloadEvent;
+  expect(download.suggestedFilename()).toBe('texture-lab-palette.json');
+  const stream = await download.createReadStream();
+  if (stream === null) throw new Error('The palette download stream was unavailable.');
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  const exported = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+    readonly format: string;
+    readonly entries: readonly { readonly color: string; readonly name: string }[];
+  };
+  expect(exported.format).toBe('texture-lab-palette');
+  expect(exported.entries.some((entry: { color: string }) => entry.color === '#FF6347')).toBe(true);
+  expect(exported.entries.every((entry: { color: string }) => !('rgb' in entry))).toBe(true);
+
+  await palette.getByLabel('Palette import mode').selectOption('overwrite');
+  await palette.getByRole('button', { name: 'Import palette JSON', exact: true }).click();
+  await palette.getByLabel('Import palette JSON file').setInputFiles({
+    name: 'import.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(
+      JSON.stringify({
+        format: 'texture-lab-palette',
+        version: 1,
+        entries: [{ name: 'Imported ocean', color: 'rgb(0 128 255)' }],
+      }),
+    ),
+  });
+  await expect(palette.getByRole('region', { name: 'Palette import preview' })).toContainText(
+    'Result:',
+  );
+  await palette.getByRole('button', { name: 'Confirm import' }).click();
+  await expect(palette.getByLabel('Imported ocean palette name')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Choose Aurora wave starter' }).click();
+  const layerName = layerRows(page)
+    .first()
+    .getByRole('textbox', { name: /Layer name/u });
+  await layerName.fill('');
+  await layerName.pressSequentially('Renamed layer');
+  await layerName.blur();
+  await expect(layerName).toHaveValue('Renamed layer');
+  expect(consoleErrors).toEqual([]);
+  expect(pageErrors).toEqual([]);
 });

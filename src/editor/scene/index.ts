@@ -16,7 +16,26 @@ export {
   updateSceneMaterialCommand,
   updateSceneMaterialBoundaryCommand,
   updateScenePaletteEntryCommand,
+  addScenePaletteEntryCommand,
+  deleteScenePaletteEntryCommand,
+  importScenePaletteCommand,
 } from './commands';
+export {
+  buildPaletteImportPreview,
+  createPaletteFile,
+  parsePaletteFile,
+  MAX_SCENE_PALETTE_ENTRIES,
+  PALETTE_FILE_FORMAT,
+  PALETTE_FILE_MAX_BYTES,
+  PALETTE_FILE_VERSION,
+} from './palette';
+export type {
+  PaletteImportEntry,
+  PaletteImportIssue,
+  PaletteImportMode,
+  PaletteImportParseResult,
+  PaletteImportPreview,
+} from './palette';
 export { SCENE_REFRAME_SAFE_PADDING } from './commands';
 export type {
   SceneArtboardPatch,

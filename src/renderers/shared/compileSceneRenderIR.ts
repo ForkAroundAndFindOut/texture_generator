@@ -209,6 +209,24 @@ export function transformSceneRenderPoint(matrix: MatrixIR, point: ScenePoint): 
   };
 }
 
+export type SceneRenderOrderOptions = Readonly<{
+  /** Temporarily place this root group in the visual frontmost position. */
+  readonly frontmostGroupId?: string;
+}>;
+
+function rootGroupsForRender(
+  scene: SceneV03,
+  options: SceneRenderOrderOptions,
+): readonly SceneGroup[] {
+  const groupId = options.frontmostGroupId;
+  if (groupId === undefined) return scene.rootGroups;
+  const index = scene.rootGroups.findIndex((group) => group.id === groupId);
+  if (index < 0 || index === scene.rootGroups.length - 1) return scene.rootGroups;
+  const selected = scene.rootGroups[index];
+  if (selected === undefined) return scene.rootGroups;
+  return [...scene.rootGroups.slice(0, index), ...scene.rootGroups.slice(index + 1), selected];
+}
+
 /**
  * Compile validated v0.3 source data once. The profile changes only the
  * artboard viewBox and Fit/Cover metadata; canonical geometry stays intact.
@@ -216,6 +234,7 @@ export function transformSceneRenderPoint(matrix: MatrixIR, point: ScenePoint): 
 export function compileSceneRenderIR(
   scene: SceneV03,
   profile: SceneRenderProfile = sceneRenderProfileForArtboard(scene.artboard),
+  options: SceneRenderOrderOptions = {},
 ): SceneRenderIR {
   assertSceneV03(scene);
   if (!isSceneRenderProfile(profile)) {
@@ -224,7 +243,7 @@ export function compileSceneRenderIR(
 
   const palette = new Map(scene.palette.map((entry) => [entry.id, entry.color] as const));
   const materials: SceneMaterialRenderIR[] = [];
-  const rootGroups = scene.rootGroups.map((group) =>
+  const rootGroups = rootGroupsForRender(scene, options).map((group) =>
     compileGroup(group, WORLD_MATRIX, true, [], palette, materials),
   );
 

@@ -346,6 +346,13 @@ export function useSceneEditor(initialScene?: SceneV03) {
     commit(reorderSceneLayerCommand(groupId, target));
   }
 
+  function reorderTo(groupId: GroupId, targetIndex: number): void {
+    const index = scene.rootGroups.findIndex((group) => group.id === groupId);
+    if (index < 0 || index === targetIndex) return;
+    if (targetIndex < 0 || targetIndex >= scene.rootGroups.length) return;
+    commit(reorderSceneLayerCommand(groupId, targetIndex));
+  }
+
   function updateTransform(groupId: GroupId, patch: SceneLayerTransformPatch): void {
     commit(updateSceneLayerTransformCommand(groupId, patch));
   }
@@ -849,6 +856,7 @@ export function useSceneEditor(initialScene?: SceneV03) {
     setVisibility: (groupId: GroupId, visible: boolean) =>
       commit(setSceneLayerVisibilityCommand(groupId, visible)),
     reorder,
+    reorderTo,
     updateTransform,
     updateMaterial,
     updateArtboard,

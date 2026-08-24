@@ -1,6 +1,6 @@
 {
   "name": "texture-lab",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "type": "module",
   "description": "Texture Lab v0.3 responsive vector texture composition canvas",

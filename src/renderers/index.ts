@@ -12,6 +12,7 @@ export type { DomSceneSvgModel, DomSceneSvgRendererProps } from './dom-svg/DomSc
 
 export { compileRenderIR } from './shared/compileRenderIR';
 export { compileSceneRenderIR, transformSceneRenderPoint } from './shared/compileSceneRenderIR';
+export type { SceneRenderOrderOptions } from './shared/compileSceneRenderIR';
 export {
   artboardViewBoxForRatio,
   isSceneRenderProfile,

@@ -175,4 +175,65 @@ describe('v0.3 scene RenderIR compiler', () => {
     expect(transformed.path.matrix.d).toBe(337.5);
     expect(ir.materials[1]!.id).toBe(stableId('mat', 2));
   });
+
+  it('supports a render-only frontmost preview without mutating scene order', () => {
+    const scene = sceneFixture();
+    const selectedId = scene.rootGroups[0]!.id;
+    const normal = compileSceneRenderIR(scene);
+    const preview = compileSceneRenderIR(scene, undefined, { frontmostGroupId: selectedId });
+
+    expect(normal.rootGroups.map((group) => group.id)).toEqual([
+      scene.rootGroups[0]!.id,
+      scene.rootGroups[1]!.id,
+    ]);
+    expect(preview.rootGroups.map((group) => group.id)).toEqual([
+      scene.rootGroups[1]!.id,
+      scene.rootGroups[0]!.id,
+    ]);
+    expect(scene.rootGroups.map((group) => group.id)).toEqual([
+      scene.rootGroups[0]!.id,
+      scene.rootGroups[1]!.id,
+    ]);
+    expect(preview.materials.map((material) => material.id)).toEqual([
+      stableId('mat', 2),
+      stableId('mat', 3),
+      stableId('mat', 1),
+    ]);
+  });
+
+  it('creates a render-only frontmost view without mutating the source scene', () => {
+    const scene = sceneFixture();
+    const originalRootGroups = structuredClone(scene.rootGroups);
+    const preview = compileSceneRenderIR(scene, undefined, {
+      frontmostGroupId: stableId('grp', 1),
+    });
+
+    expect(preview.rootGroups.map((group) => group.id)).toEqual([
+      stableId('grp', 2),
+      stableId('grp', 1),
+    ]);
+    expect(preview.materials.map((material) => material.id)).toEqual([
+      stableId('mat', 2),
+      stableId('mat', 3),
+      stableId('mat', 1),
+    ]);
+    expect(scene.rootGroups).toEqual(originalRootGroups);
+  });
+
+  it('leaves canonical order unchanged for absent, unknown, or already-frontmost previews', () => {
+    const scene = sceneFixture();
+    const expected = scene.rootGroups.map((group) => group.id);
+
+    expect(compileSceneRenderIR(scene).rootGroups.map((group) => group.id)).toEqual(expected);
+    expect(
+      compileSceneRenderIR(scene, undefined, { frontmostGroupId: 'missing-group' }).rootGroups.map(
+        (group) => group.id,
+      ),
+    ).toEqual(expected);
+    expect(
+      compileSceneRenderIR(scene, undefined, {
+        frontmostGroupId: stableId('grp', 2),
+      }).rootGroups.map((group) => group.id),
+    ).toEqual(expected);
+  });
 });

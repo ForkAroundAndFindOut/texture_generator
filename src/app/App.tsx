@@ -55,6 +55,7 @@ export function App({ initialScene, className }: AppProps) {
             onRename={editor.rename}
             onSetVisibility={editor.setVisibility}
             onReorder={editor.reorder}
+            onReorderTo={editor.reorderTo}
             onDuplicate={editor.duplicate}
             onRemove={editor.remove}
           />

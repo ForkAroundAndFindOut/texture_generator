@@ -1227,6 +1227,14 @@ summary:focus-visible {
   border-color: rgb(125 211 252 / 50%);
 }
 
+.scene-layer-row.is-drop-before {
+  box-shadow: inset 0 3px 0 #38bdf8;
+}
+
+.scene-layer-row.is-drop-after {
+  box-shadow: inset 0 -3px 0 #38bdf8;
+}
+
 .scene-layer-row.is-selected {
   border-color: #38bdf8;
   background: linear-gradient(135deg, rgb(14 165 233 / 17%), rgb(30 41 59 / 74%));
@@ -1242,6 +1250,25 @@ summary:focus-visible {
   display: flex;
   align-items: center;
   gap: 0.42rem;
+}
+
+.scene-layer-row__drag-handle {
+  display: grid;
+  width: 1.5rem;
+  min-width: 1.5rem;
+  min-height: 2rem;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  color: #7dd3fc;
+  background: transparent;
+  cursor: grab;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.scene-layer-row__drag-handle:active {
+  cursor: grabbing;
 }
 
 .scene-layer-row__select {
@@ -1393,10 +1420,6 @@ summary:focus-visible {
   cursor: move;
 }
 
-.scene-artboard__svg [data-scene-selected='true'] {
-  filter: drop-shadow(0 0 5px rgb(255 255 255 / 85%));
-}
-
 .scene-artboard__frame.is-drawing .scene-artboard__svg {
   cursor: crosshair;
 }
@@ -1434,6 +1457,15 @@ summary:focus-visible {
   filter: drop-shadow(0 0 4px rgb(14 165 233 / 90%));
   pointer-events: all;
   cursor: move;
+}
+
+.scene-artboard__selection-outline {
+  fill: rgb(224 242 254 / 3%);
+  stroke: #e0f2fe;
+  stroke-width: 4;
+  stroke-dasharray: 10 8;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
 }
 
 .scene-artboard__transform-handle {

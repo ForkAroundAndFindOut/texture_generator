@@ -109,6 +109,8 @@ type BoundaryPointerState = Readonly<{
 const DOUBLE_CLICK_DELAY_MS = 600;
 const DOUBLE_CLICK_DISTANCE_PX = 8;
 const BOUNDARY_DRAG_THRESHOLD_PX = 4;
+const LAYER_PREVIEW_DELAY_MS = 500;
+const LAYER_PREVIEW_DRAG_THRESHOLD_PX = 6;
 const MINIMUM_SCALE = 0.05;
 const MAXIMUM_SCALE = 4;
 
@@ -167,9 +169,22 @@ export function SceneArtboard({
   onInsertBoundaryVertex,
   onCancelBoundaryEdit,
 }: SceneArtboardProps) {
-  const ir = useMemo(() => compileSceneRenderIR(scene), [scene]);
+  const [frontPreviewGroupId, setFrontPreviewGroupId] = useState<GroupId>();
+  const renderPreviewGroupId =
+    frontPreviewGroupId === selectedGroupId ? frontPreviewGroupId : undefined;
+  const ir = useMemo(
+    () =>
+      compileSceneRenderIR(
+        scene,
+        undefined,
+        renderPreviewGroupId === undefined ? {} : { frontmostGroupId: renderPreviewGroupId },
+      ),
+    [scene, renderPreviewGroupId],
+  );
   const markupRoot = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | undefined>(undefined);
+  const movedBeyondPreviewThreshold = useRef(false);
+  const previewTimer = useRef<ReturnType<typeof globalThis.setTimeout> | undefined>(undefined);
   const transformDrag = useRef<TransformDragState | undefined>(undefined);
   const boundaryEditorRoot = useRef<HTMLDivElement>(null);
   const boundaryPointer = useRef<BoundaryPointerState | undefined>(undefined);
@@ -184,17 +199,81 @@ export function SceneArtboard({
     '--scene-artboard-ratio': String(ratioScalar(scene.artboard.ratio)),
   };
 
-  useEffect(() => {
-    const root = markupRoot.current;
-    if (root === null) return;
-    for (const group of root.querySelectorAll<SVGGElement>('[data-scene-group-id]')) {
-      if (group.getAttribute('data-scene-group-id') === selectedGroupId) {
-        group.setAttribute('data-scene-selected', 'true');
-      } else {
-        group.removeAttribute('data-scene-selected');
+  useEffect(
+    () => () => {
+      if (previewTimer.current !== undefined) {
+        globalThis.clearTimeout(previewTimer.current);
+        previewTimer.current = undefined;
       }
+      drag.current = undefined;
+    },
+    [],
+  );
+
+  function clearPreviewTimer(): void {
+    if (previewTimer.current === undefined) return;
+    globalThis.clearTimeout(previewTimer.current);
+    previewTimer.current = undefined;
+  }
+
+  function endFrontPreview(state: DragState | undefined = drag.current): void {
+    clearPreviewTimer();
+    if (state !== undefined) movedBeyondPreviewThreshold.current = true;
+    setFrontPreviewGroupId(undefined);
+  }
+
+  function beginGroupDrag(
+    groupId: GroupId,
+    event: ReactPointerEvent<Element>,
+    captureTarget: Element,
+    selectGroup = true,
+  ): void {
+    endFrontPreview();
+    if (selectGroup) onSelectGroup(groupId);
+    captureTarget.setPointerCapture(event.pointerId);
+    const state: DragState = {
+      pointerId: event.pointerId,
+      groupId,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    movedBeyondPreviewThreshold.current = false;
+    drag.current = state;
+    previewTimer.current = globalThis.setTimeout(() => {
+      previewTimer.current = undefined;
+      if (drag.current !== state || movedBeyondPreviewThreshold.current) return;
+      setFrontPreviewGroupId(groupId);
+    }, LAYER_PREVIEW_DELAY_MS);
+    onDrag(groupId, 'start');
+  }
+
+  function moveGroupDrag(event: ReactPointerEvent<Element>): void {
+    const state = drag.current;
+    if (state === undefined || state.pointerId !== event.pointerId) return;
+    if (!movedBeyondPreviewThreshold.current) {
+      const distance = Math.hypot(event.clientX - state.startX, event.clientY - state.startY);
+      if (distance <= LAYER_PREVIEW_DRAG_THRESHOLD_PX) return;
+      endFrontPreview(state);
     }
-  }, [ir, selectedGroupId]);
+    const delta = dragDelta(event, state);
+    onDrag(state.groupId, 'move', delta.x, delta.y);
+  }
+
+  function finishGroupDrag(event: ReactPointerEvent<Element>, phase: 'end' | 'cancel'): void {
+    const state = drag.current;
+    if (state === undefined || state.pointerId !== event.pointerId) return;
+    endFrontPreview(state);
+    if (phase === 'cancel') onDrag(state.groupId, 'cancel');
+    else {
+      const delta = dragDelta(event, state);
+      onDrag(state.groupId, 'end', delta.x, delta.y);
+    }
+    drag.current = undefined;
+    movedBeyondPreviewThreshold.current = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
 
   useEffect(() => {
     if (freeformDraft === undefined) freeformClick.current = undefined;
@@ -214,14 +293,34 @@ export function SceneArtboard({
     return true;
   }, [onBoundaryVertexEdit, releaseBoundaryPointer]);
 
+  const cancelActiveCanvasDrag = useCallback((): boolean => {
+    const state = drag.current;
+    if (state === undefined) return false;
+    if (previewTimer.current !== undefined) {
+      globalThis.clearTimeout(previewTimer.current);
+      previewTimer.current = undefined;
+    }
+    movedBeyondPreviewThreshold.current = true;
+    setFrontPreviewGroupId(undefined);
+    onDrag(state.groupId, 'cancel');
+    drag.current = undefined;
+    const owner = markupRoot.current;
+    if (owner?.hasPointerCapture(state.pointerId)) owner.releasePointerCapture(state.pointerId);
+    return true;
+  }, [onDrag]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || !cancelActiveBoundaryDrag()) return;
+      if (event.key !== 'Escape') return;
+      const cancelledBoundary = cancelActiveBoundaryDrag();
+      const cancelledCanvas = cancelActiveCanvasDrag();
+      if (!cancelledBoundary && !cancelledCanvas) return;
       event.preventDefault();
       event.stopPropagation();
     };
     const onWindowBlur = () => {
       cancelActiveBoundaryDrag();
+      cancelActiveCanvasDrag();
     };
     globalThis.addEventListener('keydown', onKeyDown, true);
     globalThis.addEventListener('blur', onWindowBlur);
@@ -229,7 +328,7 @@ export function SceneArtboard({
       globalThis.removeEventListener('keydown', onKeyDown, true);
       globalThis.removeEventListener('blur', onWindowBlur);
     };
-  }, [cancelActiveBoundaryDrag]);
+  }, [cancelActiveBoundaryDrag, cancelActiveCanvasDrag]);
 
   useEffect(() => {
     if (!isInteracting) return undefined;
@@ -273,7 +372,10 @@ export function SceneArtboard({
     if (next !== undefined) onSelectGroup(next);
   }
 
-  function dragDelta(event: ReactPointerEvent<Element>, state: DragState) {
+  function dragDelta(
+    event: ReactPointerEvent<Element>,
+    state: Pick<DragState, 'startX' | 'startY'>,
+  ) {
     const svg = markupRoot.current?.querySelector('svg');
     const box = svg?.getBoundingClientRect();
     if (box === undefined || box === null || box.width <= 0 || box.height <= 0) {
@@ -457,17 +559,19 @@ export function SceneArtboard({
           local: point,
           world: transformSceneRenderPoint(boundaryMaterial.path.matrix, point),
         }));
+  const selectionGroupId = pinnedGroupId ?? selectedGroupId;
+  const selectionIsInteractive = pinnedGroupId !== undefined;
   const pinnedSelection =
-    pinnedGroupId === undefined ||
+    selectionGroupId === undefined ||
     freeformDraft !== undefined ||
     boundaryEditor !== undefined ||
-    !scene.rootGroups.some((group) => group.id === pinnedGroupId && group.visible)
+    !scene.rootGroups.some((group) => group.id === selectionGroupId && group.visible)
       ? undefined
       : (() => {
-          const rootGroup = ir.rootGroups.find((group) => group.id === pinnedGroupId);
+          const rootGroup = ir.rootGroups.find((group) => group.id === selectionGroupId);
           if (rootGroup === undefined) return undefined;
           const worldPoints = ir.materials
-            .filter((material) => material.visible && material.groupIds.includes(pinnedGroupId))
+            .filter((material) => material.visible && material.groupIds.includes(selectionGroupId))
             .flatMap((material) =>
               material.path.commands.flatMap((command) =>
                 command.kind === 'close'
@@ -505,9 +609,9 @@ export function SceneArtboard({
           return { bounds, corners };
         })();
   const pinnedSelectionGroupId =
-    pinnedSelection === undefined || pinnedGroupId === undefined ? undefined : pinnedGroupId;
+    pinnedSelection === undefined || selectionGroupId === undefined ? undefined : selectionGroupId;
   const transformHandles =
-    pinnedSelection === undefined
+    !selectionIsInteractive || pinnedSelection === undefined
       ? []
       : (
           [
@@ -611,15 +715,7 @@ export function SceneArtboard({
                 onClearSelection();
                 return;
               }
-              onSelectGroup(groupId);
-              event.currentTarget.setPointerCapture(event.pointerId);
-              drag.current = {
-                pointerId: event.pointerId,
-                groupId,
-                startX: event.clientX,
-                startY: event.clientY,
-              };
-              onDrag(groupId, 'start');
+              beginGroupDrag(groupId, event, event.currentTarget);
             }}
             onPointerMove={(event) => {
               if (freeformDraft !== undefined) {
@@ -627,22 +723,12 @@ export function SceneArtboard({
                 return;
               }
               if (boundaryEditor !== undefined) return;
-              const state = drag.current;
-              if (state === undefined || state.pointerId !== event.pointerId) return;
-              const delta = dragDelta(event, state);
-              onDrag(state.groupId, 'move', delta.x, delta.y);
+              moveGroupDrag(event);
             }}
             onPointerUp={(event) => {
               if (freeformDraft !== undefined) return;
               if (boundaryEditor !== undefined) return;
-              const state = drag.current;
-              if (state === undefined || state.pointerId !== event.pointerId) return;
-              const delta = dragDelta(event, state);
-              onDrag(state.groupId, 'end', delta.x, delta.y);
-              drag.current = undefined;
-              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                event.currentTarget.releasePointerCapture(event.pointerId);
-              }
+              finishGroupDrag(event, 'end');
             }}
             onPointerCancel={(event) => {
               if (freeformDraft !== undefined) {
@@ -650,10 +736,7 @@ export function SceneArtboard({
                 return;
               }
               if (boundaryEditor !== undefined) return;
-              const state = drag.current;
-              if (state === undefined || state.pointerId !== event.pointerId) return;
-              onDrag(state.groupId, 'cancel');
-              drag.current = undefined;
+              finishGroupDrag(event, 'cancel');
             }}
             onPointerLeave={() => {
               if (freeformDraft !== undefined) onFreeformHover(undefined);
@@ -720,49 +803,37 @@ export function SceneArtboard({
               ) : null}
             </svg>
           )}
-          {pinnedSelection === undefined || pinnedSelectionGroupId === undefined ? null : (
+          {pinnedSelection === undefined || selectionGroupId === undefined ? null : (
             <svg
               className="scene-artboard__selection-overlay"
-              aria-label="Selected layer move control"
+              aria-label={
+                selectionIsInteractive ? 'Selected layer move control' : 'Selected layer outline'
+              }
               viewBox={`${ir.artboard.viewBox.minX} ${ir.artboard.viewBox.minY} ${ir.artboard.viewBox.width} ${ir.artboard.viewBox.height}`}
             >
               <polygon
-                className="scene-artboard__selection-cage"
+                className={
+                  selectionIsInteractive
+                    ? 'scene-artboard__selection-cage'
+                    : 'scene-artboard__selection-outline'
+                }
                 points={pinnedSelection.corners.map((point) => `${point.x},${point.y}`).join(' ')}
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  drag.current = {
-                    pointerId: event.pointerId,
-                    groupId: pinnedSelectionGroupId,
-                    startX: event.clientX,
-                    startY: event.clientY,
-                  };
-                  onDrag(pinnedSelectionGroupId, 'start');
-                }}
-                onPointerMove={(event) => {
-                  const state = drag.current;
-                  if (state === undefined || state.pointerId !== event.pointerId) return;
-                  const delta = dragDelta(event, state);
-                  onDrag(state.groupId, 'move', delta.x, delta.y);
-                }}
-                onPointerUp={(event) => {
-                  const state = drag.current;
-                  if (state === undefined || state.pointerId !== event.pointerId) return;
-                  const delta = dragDelta(event, state);
-                  onDrag(state.groupId, 'end', delta.x, delta.y);
-                  drag.current = undefined;
-                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                    event.currentTarget.releasePointerCapture(event.pointerId);
-                  }
-                }}
-                onPointerCancel={() => {
-                  const state = drag.current;
-                  if (state === undefined) return;
-                  onDrag(state.groupId, 'cancel');
-                  drag.current = undefined;
-                }}
+                onPointerDown={
+                  selectionIsInteractive
+                    ? (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        beginGroupDrag(selectionGroupId!, event, event.currentTarget, false);
+                      }
+                    : undefined
+                }
+                onPointerMove={selectionIsInteractive ? moveGroupDrag : undefined}
+                onPointerUp={
+                  selectionIsInteractive ? (event) => finishGroupDrag(event, 'end') : undefined
+                }
+                onPointerCancel={
+                  selectionIsInteractive ? (event) => finishGroupDrag(event, 'cancel') : undefined
+                }
               />
               {transformHandles.map(([handle, point]) => (
                 <circle
@@ -777,14 +848,12 @@ export function SceneArtboard({
                   onPointerDown={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    const group = scene.rootGroups.find(
-                      (entry) => entry.id === pinnedSelectionGroupId,
-                    );
+                    const group = scene.rootGroups.find((entry) => entry.id === selectionGroupId!);
                     if (group === undefined) return;
                     event.currentTarget.setPointerCapture(event.pointerId);
                     transformDrag.current = {
                       pointerId: event.pointerId,
-                      groupId: pinnedSelectionGroupId,
+                      groupId: selectionGroupId!,
                       handle,
                       startX: event.clientX,
                       startY: event.clientY,
@@ -792,7 +861,7 @@ export function SceneArtboard({
                       transform: group.transform,
                       scaleLocked,
                     };
-                    onTransform(pinnedSelectionGroupId, 'start');
+                    onTransform(selectionGroupId!, 'start');
                   }}
                   onPointerMove={(event) => {
                     const state = transformDrag.current;

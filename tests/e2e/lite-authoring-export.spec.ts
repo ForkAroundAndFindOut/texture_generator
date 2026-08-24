@@ -683,3 +683,98 @@ test('v0.3.3 edits, exports, previews, and imports palettes without rename crash
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);
 });
+
+test('v0.3.4 keeps selection compositing stable and reorders layers with the drag handle', async ({
+  page,
+}) => {
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text());
+  });
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+
+  await page.goto('/', { waitUntil: 'networkidle' });
+  await page.getByRole('button', { name: 'Choose Aurora wave starter' }).click();
+
+  const rows = layerRows(page);
+  const renderSvg = page.locator('.scene-artboard__svg > div > svg');
+  const canonicalRenderBefore = await renderSvg.evaluate((element) => element.outerHTML);
+  const previewRow = rows.last();
+  const previewGroupId = await previewRow.getAttribute('data-scene-group-id');
+  if (previewGroupId === null) throw new Error('The preview layer has no group ID.');
+  await previewRow.getByRole('button', { name: /^Select /u }).click();
+  const canonicalOrderBeforePreview = await page
+    .locator('.scene-artboard__svg > div > svg > g[data-scene-group-id]')
+    .evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute('data-scene-group-id')),
+    );
+  const selectionCage = page.locator('.scene-artboard__selection-cage');
+  const selectionCageBounds = await selectionCage.boundingBox();
+  if (selectionCageBounds === null)
+    throw new Error('The selected layer preview cage is unavailable.');
+  const cagePoint = {
+    x: selectionCageBounds.x + selectionCageBounds.width / 2,
+    y: selectionCageBounds.y + selectionCageBounds.height / 2,
+  };
+  await page.mouse.move(cagePoint.x, cagePoint.y);
+  await page.mouse.down();
+  await page.waitForTimeout(600);
+  await waitForAnimationFrames(page);
+  const frontPreviewOrder = await page
+    .locator('.scene-artboard__svg > div > svg > g[data-scene-group-id]')
+    .evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute('data-scene-group-id')),
+    );
+  expect(frontPreviewOrder.at(-1)).toBe(previewGroupId);
+  await page.mouse.move(cagePoint.x + 20, cagePoint.y + 12, { steps: 2 });
+  await waitForAnimationFrames(page);
+  const movingOrder = await page
+    .locator('.scene-artboard__svg > div > svg > g[data-scene-group-id]')
+    .evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute('data-scene-group-id')),
+    );
+  expect(movingOrder).toEqual(canonicalOrderBeforePreview);
+  await page.mouse.up();
+  await waitForAnimationFrames(page);
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await waitForAnimationFrames(page);
+  const canonicalOrderAfterPreview = await page
+    .locator('.scene-artboard__svg > div > svg > g[data-scene-group-id]')
+    .evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute('data-scene-group-id')),
+    );
+  expect(canonicalOrderAfterPreview).toEqual(canonicalOrderBeforePreview);
+
+  for (let index = 0; index < (await rows.count()); index += 1) {
+    await rows
+      .nth(index)
+      .getByRole('button', { name: /^Select /u })
+      .click();
+    await expect(page.locator('.scene-artboard__selection-overlay')).toBeVisible();
+    expect(await renderSvg.evaluate((element) => element.outerHTML)).toBe(canonicalRenderBefore);
+  }
+
+  const renderedOrderBefore = await page
+    .locator('.scene-artboard__svg > div > svg > g[data-scene-group-id]')
+    .evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute('data-scene-group-id')),
+    );
+  const sourceRow = rows.first();
+  const targetRow = rows.last();
+  await sourceRow.getByRole('button', { name: /Drag to reorder/u }).dragTo(targetRow);
+  await waitForAnimationFrames(page);
+
+  const renderedOrderAfter = await page
+    .locator('.scene-artboard__svg > div > svg > g[data-scene-group-id]')
+    .evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute('data-scene-group-id')),
+    );
+  expect(renderedOrderAfter).not.toEqual(renderedOrderBefore);
+  const panelOrder = await rows.evaluateAll((elements) =>
+    elements.map((element) => element.getAttribute('data-scene-group-id')),
+  );
+  expect([...renderedOrderAfter].reverse()).toEqual(panelOrder);
+  expect(consoleErrors).toEqual([]);
+  expect(pageErrors).toEqual([]);
+});
